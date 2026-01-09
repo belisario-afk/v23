@@ -16,9 +16,22 @@ namespace Oxide.Plugins
         private const string DoorPrefab = "assets/prefabs/building/door.hinged/door.hinged.metal.prefab";
         private const string DoubleDoorPrefab = "assets/prefabs/building/door.double.hinged/door.double.hinged.metal.prefab";
         private const string GarageDoorPrefab = "assets/prefabs/building/door.hinged/door.hinged.garage/door.hinged.garagedoor.prefab";
-        private const string ArmoredDoorPrefab = "assets/prefabs/building/door.hinged/door.hinged.armoured/door.hinged.armoured.prefab";
-        private const string ArmoredDoubleDoorPrefab = "assets/prefabs/building/door.double.hinged/door.double.hinged.armoured/door.double.hinged.armoured.prefab";
-        private const string CodeLockPrefab = "assets/prefabs/locks/keypad/lock.code.prefab";
+        // Top-tier armored doors
+        private const string ArmoredDoorPrefab = "assets/prefabs/building/door.hinged/door.hinged.toptier.prefab";
+        private const string ArmoredDoubleDoorPrefab = "assets/prefabs/building/door.double.hinged/door.double.hinged.toptier.prefab";
+        // Codelock with pilot skin
+        private const string CodeLockPrefab = "assets/prefabs/locks/keypad/skins/codelock_a_pilot/lock.code.a.pilot.prefab";
+        
+        // Skin ID placeholders for door customization
+        private const ulong MetalDoorSkinId = 0; // Placeholder - set to actual skin ID
+        private const ulong DoubleDoorSkinId = 0; // Placeholder - set to actual skin ID
+        private const ulong GarageDoorSkinId = 0; // Placeholder - set to actual skin ID
+        private const ulong ArmoredDoorSkinId = 0; // Placeholder - set to actual skin ID
+        private const ulong ArmoredDoubleDoorSkinId = 0; // Placeholder - set to actual skin ID
+        private const ulong CodeLockSkinId = 0; // Placeholder - set to actual skin ID
+        
+        // Default code for grandma zone doors - gang members can always open
+        private const string GrandmaZoneDoorCode = "1337";
 
         private const string AdminPermission = "manualdoor.admin";
 
@@ -425,8 +438,15 @@ namespace Oxide.Plugins
                 return null;
 
             // Check if it's a ManualDoor
-            if (!data.Doors.ContainsKey(parent.net.ID.Value))
+            if (!data.Doors.TryGetValue(parent.net.ID.Value, out var info))
                 return null;
+            
+            // Block code changes for grandma zone doors - code is fixed
+            if (!string.IsNullOrEmpty(info.GrandmaZoneGang))
+            {
+                SendReply(player, $"<color=#ff4444>[GRANDMA'S HOUSE]</color> This door's code cannot be changed. It belongs to {info.GrandmaZoneGang}.");
+                return false;
+            }
 
             // Check with HoodWars if player can use locks in this location
             if (HoodWars == null || !HoodWars.IsLoaded)
@@ -1410,6 +1430,18 @@ namespace Oxide.Plugins
                 default: return isDoubleDoor ? DoubleDoorPrefab : DoorPrefab;
             }
         }
+        
+        // Helper to get skin ID by door type
+        private ulong GetDoorSkinByType(int doorType, bool isDoubleDoor)
+        {
+            switch (doorType)
+            {
+                case 1: return GarageDoorSkinId;
+                case 2: return ArmoredDoorSkinId;
+                case 3: return ArmoredDoubleDoorSkinId;
+                default: return isDoubleDoor ? DoubleDoorSkinId : MetalDoorSkinId;
+            }
+        }
 
         private BaseEntity SpawnPermanentDoor(Vector3 pos, Quaternion rot, ulong ownerId, bool isDoubleDoor)
         {
@@ -1424,6 +1456,11 @@ namespace Oxide.Plugins
                 return null;
 
             ent.OwnerID = ownerId;
+            
+            // Apply skin if available
+            ulong skinId = GetDoorSkinByType(doorType, isDoubleDoor);
+            if (skinId != 0)
+                ent.skinID = skinId;
 
             var gw = ent.GetComponent<GroundWatch>();
             if (gw != null) gw.enabled = false;
@@ -1446,6 +1483,10 @@ namespace Oxide.Plugins
                     grandmaZoneGang = gangName;
                     // Register the door with the grandma zone
                     GrandmasHouse.Call("API_RegisterGrandmaDoor", gangName, ent.net.ID.Value);
+                    
+                    // For grandma zone doors, attach a codelock with fixed code
+                    // Gang members can open without code, enemies cannot change it
+                    AttachGrandmaZoneCodeLock(ent, ownerId, GrandmaZoneDoorCode);
                 }
             }
 
@@ -1456,7 +1497,8 @@ namespace Oxide.Plugins
                 ClaimExpiry = 0,
                 IsDoubleDoor = isDoubleDoor || doorType == 3,
                 DoorType = doorType,
-                GrandmaZoneGang = grandmaZoneGang
+                GrandmaZoneGang = grandmaZoneGang,
+                LockCode = grandmaZoneGang != null ? GrandmaZoneDoorCode : null
             };
             info.SetPosition(pos);
             info.SetRotation(rot);
@@ -1464,7 +1506,7 @@ namespace Oxide.Plugins
             data.Doors[ent.net.ID.Value] = info;
             SaveData();
 
-            // NOTE: NO lock attached here anymore. Lock is created on /claimdoor (if missing).
+            // NOTE: For non-grandma zone doors, lock is created on /claimdoor (if missing).
             return ent;
         }
 
@@ -1560,9 +1602,45 @@ namespace Oxide.Plugins
 
             lockEnt.SetParent(door, "lock");
             lockEnt.OwnerID = ownerId;
+            
+            // Apply skin if set
+            if (CodeLockSkinId != 0)
+                lockEnt.skinID = CodeLockSkinId;
+                
             lockEnt.Spawn();
 
             return lockEnt as CodeLock;
+        }
+        
+        /// <summary>
+        /// Attaches a codelock to a door in a grandma zone with a fixed code.
+        /// Gang members can open the door without entering the code.
+        /// The code cannot be changed by anyone.
+        /// </summary>
+        private CodeLock AttachGrandmaZoneCodeLock(BaseEntity door, ulong ownerId, string fixedCode)
+        {
+            var lockEnt = GameManager.server.CreateEntity(CodeLockPrefab, Vector3.zero, Quaternion.identity);
+            if (lockEnt == null)
+                return null;
+
+            lockEnt.SetParent(door, "lock");
+            lockEnt.OwnerID = ownerId;
+            
+            // Apply skin if set
+            if (CodeLockSkinId != 0)
+                lockEnt.skinID = CodeLockSkinId;
+                
+            lockEnt.Spawn();
+
+            var cl = lockEnt as CodeLock;
+            if (cl != null)
+            {
+                cl.code = fixedCode;
+                cl.SetFlag(BaseEntity.Flags.Locked, true);
+                cl.SendNetworkUpdate();
+            }
+
+            return cl;
         }
 
         #endregion
