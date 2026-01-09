@@ -1434,7 +1434,7 @@ namespace Oxide.Plugins
                     DoorEditFromAdmin(player);
                     break;
                     
-                case "doorinfo":
+                case "grandmadoorinfo":
                     DoorInfoFromAdmin(player);
                     break;
                     
@@ -1442,7 +1442,7 @@ namespace Oxide.Plugins
                     RemoveDoorFromAdmin(player);
                     break;
                     
-                case "resetdoor":
+                case "grandmaresetdoor":
                     ResetDoorFromAdmin(player);
                     break;
                     
@@ -1456,6 +1456,18 @@ namespace Oxide.Plugins
                     
                 case "claimdoor":
                     ClaimDoorFromAdmin(player);
+                    break;
+                    
+                case "savegrandmalayout":
+                    SaveGrandmaLayoutFromAdmin(player);
+                    break;
+                    
+                case "listlayouts":
+                    ListLayoutsFromAdmin(player);
+                    break;
+                    
+                case "spawnlayout":
+                    SpawnLayoutFromAdmin(player);
                     break;
             }
         }
@@ -1832,6 +1844,47 @@ namespace Oxide.Plugins
                 return;
             }
             player.SendConsoleCommand("chat.say", "/claimdoor");
+        }
+        
+        private void SaveGrandmaLayoutFromAdmin(BasePlayer player)
+        {
+            if (ManualDoor == null || !ManualDoor.IsLoaded)
+            {
+                SendReply(player, "<color=#ff4444>ERROR:</color> ManualDoor plugin is not loaded.");
+                return;
+            }
+            
+            // Get player's gang name for the layout
+            var playerInfo = GetPlayerData(player.userID);
+            string gangName = "grandma";
+            if (playerInfo.HomeHood != NeighborhoodType.Neutral)
+            {
+                var hoodConfig = GetNeighborhoodConfig(playerInfo.HomeHood);
+                gangName = hoodConfig?.Name?.ToLower().Replace(" ", "") ?? "grandma";
+            }
+            
+            string layoutName = $"grandma_{gangName}_{DateTime.Now:yyyyMMdd_HHmm}";
+            player.SendConsoleCommand("chat.say", $"/savegrandmalayout {layoutName} {gangName}");
+        }
+        
+        private void ListLayoutsFromAdmin(BasePlayer player)
+        {
+            if (ManualDoor == null || !ManualDoor.IsLoaded)
+            {
+                SendReply(player, "<color=#ff4444>ERROR:</color> ManualDoor plugin is not loaded.");
+                return;
+            }
+            player.SendConsoleCommand("chat.say", "/listlayouts");
+        }
+        
+        private void SpawnLayoutFromAdmin(BasePlayer player)
+        {
+            if (ManualDoor == null || !ManualDoor.IsLoaded)
+            {
+                SendReply(player, "<color=#ff4444>ERROR:</color> ManualDoor plugin is not loaded.");
+                return;
+            }
+            SendReply(player, "<color=#ffcc00>Use chat command: /spawnlayout <name></color>\nView available layouts with /listlayouts first.");
         }
 
         // Admin command to set the TC they're looking at as the HQ TC for a gang
@@ -2587,7 +2640,7 @@ namespace Oxide.Plugins
 
             elements.Add(new CuiButton
             {
-                Button = { Color = manualDoorLoaded ? "0.4 0.5 0.4 1" : "0.4 0.4 0.4 1", Command = "hoodwars.admin doorinfo" },
+                Button = { Color = manualDoorLoaded ? "0.4 0.5 0.4 1" : "0.4 0.4 0.4 1", Command = "hoodwars.admin grandmadoorinfo" },
                 RectTransform = { AnchorMin = $"0.34 {y - rowHeight}", AnchorMax = $"0.64 {y}" },
                 Text = { Text = "Door Info", FontSize = 9, Align = TextAnchor.MiddleCenter }
             }, "Content");
@@ -2618,7 +2671,7 @@ namespace Oxide.Plugins
 
             elements.Add(new CuiButton
             {
-                Button = { Color = manualDoorLoaded ? "0.5 0.4 0.2 1" : "0.4 0.4 0.4 1", Command = "hoodwars.admin resetdoor" },
+                Button = { Color = manualDoorLoaded ? "0.5 0.4 0.2 1" : "0.4 0.4 0.4 1", Command = "hoodwars.admin grandmaresetdoor" },
                 RectTransform = { AnchorMin = $"0.66 {y - rowHeight}", AnchorMax = $"0.98 {y}" },
                 Text = { Text = "Reset Door", FontSize = 9, Align = TextAnchor.MiddleCenter }
             }, "Content");
@@ -2640,14 +2693,38 @@ namespace Oxide.Plugins
                 Text = { Text = "Claim Door", FontSize = 9, Align = TextAnchor.MiddleCenter }
             }, "Content");
 
+            y -= rowHeight + spacing;
+
+            // === Row 6: Layout Commands ===
+            elements.Add(new CuiButton
+            {
+                Button = { Color = manualDoorLoaded ? "0.4 0.5 0.3 1" : "0.4 0.4 0.4 1", Command = "hoodwars.admin savegrandmalayout" },
+                RectTransform = { AnchorMin = $"0.02 {y - rowHeight}", AnchorMax = $"0.32 {y}" },
+                Text = { Text = "Save Layout", FontSize = 9, Align = TextAnchor.MiddleCenter }
+            }, "Content");
+
+            elements.Add(new CuiButton
+            {
+                Button = { Color = manualDoorLoaded ? "0.3 0.4 0.5 1" : "0.4 0.4 0.4 1", Command = "hoodwars.admin listlayouts" },
+                RectTransform = { AnchorMin = $"0.34 {y - rowHeight}", AnchorMax = $"0.64 {y}" },
+                Text = { Text = "List Layouts", FontSize = 9, Align = TextAnchor.MiddleCenter }
+            }, "Content");
+
+            elements.Add(new CuiButton
+            {
+                Button = { Color = manualDoorLoaded ? "0.5 0.4 0.3 1" : "0.4 0.4 0.4 1", Command = "hoodwars.admin spawnlayout" },
+                RectTransform = { AnchorMin = $"0.66 {y - rowHeight}", AnchorMax = $"0.98 {y}" },
+                Text = { Text = "Spawn Layout", FontSize = 9, Align = TextAnchor.MiddleCenter }
+            }, "Content");
+
             // Info text at bottom
             elements.Add(new CuiLabel
             {
-                Text = { Text = "Commands: /spawngrandma, /cleargrandma, /addsphere [r], /removesphere\n" +
-                               "/spawngaragedoor, /spawnarmoreddoor, /spawnarmoreddoubledoor\n" +
+                Text = { Text = "Commands: /savegrandmalayout <name> <gang>, /spawnlayout <name>\n" +
+                               "/spawngaragedoor, /spawnarmoreddoor, /addsphere [r], /removesphere\n" +
                                "/dooredit, /doorinfo, /removedoor, /resetdoor, /claimdoor",
                         FontSize = 9, Align = TextAnchor.MiddleLeft, Color = "0.6 0.6 0.6 1" },
-                RectTransform = { AnchorMin = "0.02 0.02", AnchorMax = "0.98 0.18" }
+                RectTransform = { AnchorMin = "0.02 0.02", AnchorMax = "0.98 0.14" }
             }, "Content");
         }
 

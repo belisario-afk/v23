@@ -102,6 +102,10 @@ namespace Oxide.Plugins
             public float RotZ;
             public float RotW;
             public bool IsDoubleDoor;
+            public int DoorType; // 0 = metal, 1 = garage, 2 = armored, 3 = armored double
+            public bool HasSphere;
+            public float SphereRadius;
+            public string GrandmaZoneGang; // For grandma door layouts
         }
 
         private class DoorInfo
@@ -1082,7 +1086,11 @@ namespace Oxide.Plugins
                     RotY = door.RotY,
                     RotZ = door.RotZ,
                     RotW = door.RotW,
-                    IsDoubleDoor = door.IsDoubleDoor
+                    IsDoubleDoor = door.IsDoubleDoor,
+                    DoorType = door.DoorType,
+                    HasSphere = door.HasSphere,
+                    SphereRadius = door.SphereRadius,
+                    GrandmaZoneGang = door.GrandmaZoneGang
                 });
             }
 
@@ -1166,7 +1174,34 @@ namespace Oxide.Plugins
                 );
                 var rot = new Quaternion(entry.RotX, entry.RotY, entry.RotZ, entry.RotW);
 
-                var door = SpawnPermanentDoor(pos, rot, player.userID, entry.IsDoubleDoor);
+                // Spawn door with proper type (uses DoorType from layout)
+                BaseEntity door = null;
+                if (entry.DoorType > 0 || !string.IsNullOrEmpty(entry.GrandmaZoneGang))
+                {
+                    // Use SpawnPermanentDoorByType for grandma/armored doors
+                    door = SpawnPermanentDoorByType(pos, rot, player.userID, entry.DoorType, entry.IsDoubleDoor);
+                    
+                    // Restore grandma zone and sphere settings
+                    if (door != null && data.Doors.TryGetValue(door.net.ID.Value, out var info))
+                    {
+                        if (!string.IsNullOrEmpty(entry.GrandmaZoneGang))
+                        {
+                            info.GrandmaZoneGang = entry.GrandmaZoneGang;
+                        }
+                        if (entry.HasSphere && entry.SphereRadius > 0)
+                        {
+                            info.HasSphere = true;
+                            info.SphereRadius = entry.SphereRadius;
+                            CreateDoorSphere(door.net.ID.Value, info, entry.SphereRadius);
+                        }
+                        SaveData();
+                    }
+                }
+                else
+                {
+                    door = SpawnPermanentDoor(pos, rot, player.userID, entry.IsDoubleDoor);
+                }
+                
                 if (door != null)
                     spawned++;
             }
@@ -1204,6 +1239,86 @@ namespace Oxide.Plugins
             data.SavedLayouts.Remove(layoutName);
             SaveData();
             SendReply(player, $"<color=#66ff66>Layout '{layoutName}' deleted.</color>");
+        }
+
+        /// <summary>
+        /// Save only grandma zone doors as a layout.
+        /// Usage: /savegrandmalayout <name> <gang_name>
+        /// </summary>
+        [ChatCommand("savegrandmalayout")]
+        private void CmdSaveGrandmaLayout(BasePlayer player, string cmd, string[] args)
+        {
+            if (!permission.UserHasPermission(player.UserIDString, AdminPermission))
+            {
+                SendReply(player, "<color=#ff6666>Permission denied.</color>");
+                return;
+            }
+
+            if (args.Length < 2)
+            {
+                SendReply(player, "<color=#ffcc00>Usage: /savegrandmalayout <name> <gang_name></color>");
+                return;
+            }
+
+            string layoutName = args[0].ToLower();
+            string gangName = args[1];
+
+            // Get only doors in grandma zones or doors with matching gang
+            var grandmaDoors = data.Doors.Values
+                .Where(d => !string.IsNullOrEmpty(d.GrandmaZoneGang) || d.DoorType > 0)
+                .ToList();
+
+            if (grandmaDoors.Count == 0)
+            {
+                SendReply(player, "<color=#ff6666>No grandma doors found to save. Spawn armored/garage doors first.</color>");
+                return;
+            }
+
+            // Calculate centroid
+            float originX = 0, originY = 0, originZ = 0;
+            foreach (var door in grandmaDoors)
+            {
+                originX += door.PosX;
+                originY += door.PosY;
+                originZ += door.PosZ;
+            }
+            originX /= grandmaDoors.Count;
+            originY /= grandmaDoors.Count;
+            originZ /= grandmaDoors.Count;
+
+            var layout = new DoorLayoutInfo
+            {
+                SavedOriginX = originX,
+                SavedOriginY = originY,
+                SavedOriginZ = originZ
+            };
+
+            foreach (var door in grandmaDoors)
+            {
+                layout.Entries.Add(new DoorLayoutEntry
+                {
+                    OffsetX = door.PosX - originX,
+                    OffsetY = door.PosY - originY,
+                    OffsetZ = door.PosZ - originZ,
+                    RotX = door.RotX,
+                    RotY = door.RotY,
+                    RotZ = door.RotZ,
+                    RotW = door.RotW,
+                    IsDoubleDoor = door.IsDoubleDoor,
+                    DoorType = door.DoorType,
+                    HasSphere = door.HasSphere,
+                    SphereRadius = door.SphereRadius,
+                    GrandmaZoneGang = gangName // Force the gang name for all saved doors
+                });
+            }
+
+            if (data.SavedLayouts == null)
+                data.SavedLayouts = new Dictionary<string, DoorLayoutInfo>();
+
+            data.SavedLayouts[layoutName] = layout;
+            SaveData();
+
+            SendReply(player, $"<color=#66ff66>Grandma layout '{layoutName}' saved with {layout.Entries.Count} doors for gang '{gangName}'.</color>");
         }
 
         /// <summary>
