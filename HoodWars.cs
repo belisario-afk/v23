@@ -40,6 +40,10 @@ namespace Oxide.Plugins
         // DriveBySedanGangs plugin reference for NPC drive-by events
         [PluginReference]
         private Plugin DriveBySedanGangs;
+        
+        // GrandmasHouse plugin reference for grandma zone integration
+        [PluginReference]
+        private Plugin GrandmasHouse;
 
         private const string PrefabMarker = "assets/prefabs/tools/map/genericradiusmarker.prefab";
         private const string PrefabSphere = "assets/prefabs/visualization/sphere.prefab";
@@ -1391,6 +1395,35 @@ namespace Oxide.Plugins
                 case "testdriveby":
                     TestDriveBy(player);
                     break;
+                    
+                // Grandma commands
+                case "spawngrandma":
+                    SpawnTestGrandma(player);
+                    break;
+                    
+                case "killgrandmas":
+                    KillAllGrandmas(player);
+                    break;
+                    
+                case "spawngaragedoor":
+                    SpawnGarageDoor(player);
+                    break;
+                    
+                case "spawnarmoreddoor":
+                    SpawnArmoredDoor(player);
+                    break;
+                    
+                case "spawnarmoreddoubledoor":
+                    SpawnArmoredDoubleDoor(player);
+                    break;
+                    
+                case "testgrandmadooraccess":
+                    TestGrandmaDoorAccess(player);
+                    break;
+                    
+                case "testc4reward":
+                    TestC4Reward(player);
+                    break;
             }
         }
 
@@ -1570,6 +1603,132 @@ namespace Oxide.Plugins
                 SendReply(player, "<color=#ff4444>ERROR:</color> Failed to spawn drive-by gang. Check console for details.");
             }
         }
+        
+        // Grandma test methods
+        private void SpawnTestGrandma(BasePlayer player)
+        {
+            if (GrandmasHouse == null || !GrandmasHouse.IsLoaded)
+            {
+                SendReply(player, "<color=#ff4444>ERROR:</color> GrandmasHouse plugin is not loaded.");
+                return;
+            }
+            
+            // Use player's gang to spawn a grandma
+            var playerInfo = GetPlayerData(player.userID);
+            string gangName = "Westside Pirus"; // Default
+            if (playerInfo.HomeHood != NeighborhoodType.Neutral)
+            {
+                var hoodConfig = GetNeighborhoodConfig(playerInfo.HomeHood);
+                gangName = hoodConfig?.Name ?? gangName;
+            }
+            
+            // Call GrandmasHouse to spawn a manual grandma at player's location
+            player.SendConsoleCommand("chat.say", "/spawngrandma");
+            SendReply(player, $"<color=#55ff55>GRANDMA TEST:</color> Spawning grandma for {gangName} at your location...");
+        }
+        
+        private void KillAllGrandmas(BasePlayer player)
+        {
+            if (GrandmasHouse == null || !GrandmasHouse.IsLoaded)
+            {
+                SendReply(player, "<color=#ff4444>ERROR:</color> GrandmasHouse plugin is not loaded.");
+                return;
+            }
+            
+            // Call the clear command
+            player.SendConsoleCommand("chat.say", "/cleargrandma");
+            SendReply(player, "<color=#ff4444>GRANDMA TEST:</color> Killed all grandmas (check GrandmasHouse plugin for more control).");
+        }
+        
+        private void SpawnGarageDoor(BasePlayer player)
+        {
+            if (ManualDoor == null || !ManualDoor.IsLoaded)
+            {
+                SendReply(player, "<color=#ff4444>ERROR:</color> ManualDoor plugin is not loaded.");
+                return;
+            }
+            
+            player.SendConsoleCommand("chat.say", "/spawngaragedoor");
+            SendReply(player, "<color=#55ff55>SUCCESS:</color> Spawning garage door at your location...");
+        }
+        
+        private void SpawnArmoredDoor(BasePlayer player)
+        {
+            if (ManualDoor == null || !ManualDoor.IsLoaded)
+            {
+                SendReply(player, "<color=#ff4444>ERROR:</color> ManualDoor plugin is not loaded.");
+                return;
+            }
+            
+            player.SendConsoleCommand("chat.say", "/spawnarmoreddoor");
+            SendReply(player, "<color=#55ff55>SUCCESS:</color> Spawning armored door at your location...");
+        }
+        
+        private void SpawnArmoredDoubleDoor(BasePlayer player)
+        {
+            if (ManualDoor == null || !ManualDoor.IsLoaded)
+            {
+                SendReply(player, "<color=#ff4444>ERROR:</color> ManualDoor plugin is not loaded.");
+                return;
+            }
+            
+            player.SendConsoleCommand("chat.say", "/spawnarmoreeddoubledoor");
+            SendReply(player, "<color=#55ff55>SUCCESS:</color> Spawning armored double door at your location...");
+        }
+        
+        private void TestGrandmaDoorAccess(BasePlayer player)
+        {
+            if (GrandmasHouse == null || !GrandmasHouse.IsLoaded)
+            {
+                SendReply(player, "<color=#ff4444>ERROR:</color> GrandmasHouse plugin is not loaded.");
+                return;
+            }
+            
+            var isInZone = GrandmasHouse.Call("API_IsInGrandmaZone", player.transform.position);
+            bool inZone = isInZone != null && (bool)isInZone;
+            
+            if (!inZone)
+            {
+                SendReply(player, "<color=#ffaa00>GRANDMA ACCESS TEST:</color> You are not in any grandma house zone.");
+                return;
+            }
+            
+            var zoneGang = GrandmasHouse.Call("API_GetGrandmaZoneGang", player.transform.position) as string;
+            var playerInfo = GetPlayerData(player.userID);
+            var playerGangConfig = GetNeighborhoodConfig(playerInfo.HomeHood);
+            string playerGang = playerGangConfig?.Name ?? "Neutral";
+            
+            bool canAccess = playerGang == zoneGang;
+            
+            SendReply(player, $"<color=#55ff55>GRANDMA ACCESS TEST:</color>\n" +
+                             $"Zone Gang: <color=#ffaa00>{zoneGang}</color>\n" +
+                             $"Your Gang: <color=#ffaa00>{playerGang}</color>\n" +
+                             $"Door Access: {(canAccess ? "<color=#55ff55>ALLOWED</color>" : "<color=#ff4444>DENIED</color>")}\n" +
+                             $"Can Build: <color=#ff4444>NO</color>\n" +
+                             $"Can Raid: <color=#55ff55>YES</color>");
+        }
+        
+        private void TestC4Reward(BasePlayer player)
+        {
+            var playerInfo = GetPlayerData(player.userID);
+            if (playerInfo.HomeHood == NeighborhoodType.Neutral)
+            {
+                SendReply(player, "<color=#ffaa00>C4 REWARD TEST:</color> You need to join a gang first!");
+                return;
+            }
+            
+            var hoodConfig = GetNeighborhoodConfig(playerInfo.HomeHood);
+            string gangName = hoodConfig?.Name ?? "Unknown";
+            
+            // Give player C4 as a test
+            Item c4 = ItemManager.CreateByName("explosive.timed", 2);
+            if (c4 != null)
+            {
+                player.GiveItem(c4);
+                SendReply(player, $"<color=#55ff55>C4 REWARD TEST:</color> You received 2 C4 (simulating grandma death reward for {gangName}).");
+                Effect.server.Run("assets/prefabs/tools/timed.explosive.charge/effects/impact.prefab", player.transform.position);
+            }
+        }
 
         // Admin command to set the TC they're looking at as the HQ TC for a gang
         private void SetHQTCFromLook(BasePlayer player, int gangIndex)
@@ -1685,12 +1844,13 @@ namespace Oxide.Plugins
             }, "Header");
 
             // Navigation tabs
-            AddNavTab(elements, "main", "Main", "0.01 0.82", "0.12 0.88", section == "main");
-            AddNavTab(elements, "hq", "HQ", "0.13 0.82", "0.24 0.88", section == "hq");
-            AddNavTab(elements, "neighborhoods", "Hoods", "0.25 0.82", "0.38 0.88", section == "neighborhoods");
-            AddNavTab(elements, "hotelitems", "Hotel", "0.39 0.82", "0.50 0.88", section == "hotelitems");
-            AddNavTab(elements, "general", "General", "0.51 0.82", "0.64 0.88", section == "general");
-            AddNavTab(elements, "testing", "Testing", "0.65 0.82", "0.78 0.88", section == "testing");
+            AddNavTab(elements, "main", "Main", "0.01 0.82", "0.10 0.88", section == "main");
+            AddNavTab(elements, "hq", "HQ", "0.11 0.82", "0.20 0.88", section == "hq");
+            AddNavTab(elements, "neighborhoods", "Hoods", "0.21 0.82", "0.32 0.88", section == "neighborhoods");
+            AddNavTab(elements, "hotelitems", "Hotel", "0.33 0.82", "0.44 0.88", section == "hotelitems");
+            AddNavTab(elements, "general", "General", "0.45 0.82", "0.56 0.88", section == "general");
+            AddNavTab(elements, "testing", "Testing", "0.57 0.82", "0.68 0.88", section == "testing");
+            AddNavTab(elements, "grandma", "Grandma", "0.69 0.82", "0.82 0.88", section == "grandma");
 
             // Content area
             elements.Add(new CuiPanel
@@ -1718,6 +1878,9 @@ namespace Oxide.Plugins
                     break;
                 case "testing":
                     AddTestingContent(elements, player);
+                    break;
+                case "grandma":
+                    AddGrandmaContent(elements, player);
                     break;
             }
 
@@ -2207,6 +2370,127 @@ namespace Oxide.Plugins
                 Button = { Color = driveByLoaded ? "0.6 0.3 0.3 1" : "0.4 0.4 0.4 1", Command = "hoodwars.admin testdriveby" },
                 RectTransform = { AnchorMin = "0.66 0.05", AnchorMax = "0.98 0.13" },
                 Text = { Text = driveByLoaded ? "Test Drive-By" : "DriveBy N/A", FontSize = 9, Align = TextAnchor.MiddleCenter }
+            }, "Content");
+        }
+        
+        private void AddGrandmaContent(CuiElementContainer elements, BasePlayer player)
+        {
+            bool grandmaLoaded = GrandmasHouse != null && GrandmasHouse.IsLoaded;
+            
+            elements.Add(new CuiLabel
+            {
+                Text = { Text = "Grandma's House Management", FontSize = 16, Align = TextAnchor.MiddleCenter, Color = "0.9 0.7 0.4 1" },
+                RectTransform = { AnchorMin = "0 0.88", AnchorMax = "1 0.98" }
+            }, "Content");
+
+            // Plugin status
+            elements.Add(new CuiLabel
+            {
+                Text = { Text = $"GrandmasHouse Plugin: {(grandmaLoaded ? "<color=#55ff55>LOADED</color>" : "<color=#ff4444>NOT LOADED</color>")}", 
+                        FontSize = 12, Align = TextAnchor.MiddleCenter, Color = "0.8 0.8 0.8 1" },
+                RectTransform = { AnchorMin = "0.02 0.78", AnchorMax = "0.98 0.86" }
+            }, "Content");
+
+            if (!grandmaLoaded)
+            {
+                elements.Add(new CuiLabel
+                {
+                    Text = { Text = "GrandmasHouse plugin is not loaded.\nInstall GrandmasHouse.cs to enable Grandma features.", 
+                            FontSize = 12, Align = TextAnchor.MiddleCenter, Color = "0.7 0.7 0.7 1" },
+                    RectTransform = { AnchorMin = "0.02 0.4", AnchorMax = "0.98 0.7" }
+                }, "Content");
+                return;
+            }
+
+            float y = 0.72f;
+            float rowHeight = 0.1f;
+            float spacing = 0.02f;
+
+            // Check if player is in a grandma zone
+            var isInGrandmaZone = GrandmasHouse.Call("API_IsInGrandmaZone", player.transform.position);
+            string grandmaZoneGang = GrandmasHouse.Call("API_GetGrandmaZoneGang", player.transform.position) as string ?? "None";
+            
+            elements.Add(new CuiLabel
+            {
+                Text = { Text = $"Current Grandma Zone: {(isInGrandmaZone != null && (bool)isInGrandmaZone ? $"<color=#ffaa00>{grandmaZoneGang}</color>" : "Not in zone")}", 
+                        FontSize = 11, Align = TextAnchor.MiddleCenter, Color = "0.8 0.8 0.8 1" },
+                RectTransform = { AnchorMin = "0.02 0.68", AnchorMax = "0.98 0.76" }
+            }, "Content");
+
+            y = 0.62f;
+
+            // Spawn Grandma button
+            elements.Add(new CuiButton
+            {
+                Button = { Color = "0.5 0.4 0.2 1", Command = "hoodwars.admin spawngrandma" },
+                RectTransform = { AnchorMin = $"0.02 {y - rowHeight}", AnchorMax = $"0.48 {y}" },
+                Text = { Text = "Spawn Test Grandma", FontSize = 11, Align = TextAnchor.MiddleCenter }
+            }, "Content");
+
+            // Kill All Grandmas button
+            elements.Add(new CuiButton
+            {
+                Button = { Color = "0.6 0.2 0.2 1", Command = "hoodwars.admin killgrandmas" },
+                RectTransform = { AnchorMin = $"0.52 {y - rowHeight}", AnchorMax = $"0.98 {y}" },
+                Text = { Text = "Kill All Grandmas", FontSize = 11, Align = TextAnchor.MiddleCenter }
+            }, "Content");
+
+            y -= rowHeight + spacing;
+
+            // Spawn Garage Door button
+            bool manualDoorLoaded = ManualDoor != null && ManualDoor.IsLoaded;
+            elements.Add(new CuiButton
+            {
+                Button = { Color = manualDoorLoaded ? "0.3 0.5 0.3 1" : "0.4 0.4 0.4 1", Command = "hoodwars.admin spawngaragedoor" },
+                RectTransform = { AnchorMin = $"0.02 {y - rowHeight}", AnchorMax = $"0.32 {y}" },
+                Text = { Text = "Garage Door", FontSize = 10, Align = TextAnchor.MiddleCenter }
+            }, "Content");
+
+            // Spawn Armored Door button
+            elements.Add(new CuiButton
+            {
+                Button = { Color = manualDoorLoaded ? "0.4 0.4 0.5 1" : "0.4 0.4 0.4 1", Command = "hoodwars.admin spawnarmoreddoor" },
+                RectTransform = { AnchorMin = $"0.34 {y - rowHeight}", AnchorMax = $"0.64 {y}" },
+                Text = { Text = "Armored Door", FontSize = 10, Align = TextAnchor.MiddleCenter }
+            }, "Content");
+
+            // Spawn Armored Double Door button
+            elements.Add(new CuiButton
+            {
+                Button = { Color = manualDoorLoaded ? "0.4 0.5 0.5 1" : "0.4 0.4 0.4 1", Command = "hoodwars.admin spawnarmoreddoubledoor" },
+                RectTransform = { AnchorMin = $"0.66 {y - rowHeight}", AnchorMax = $"0.98 {y}" },
+                Text = { Text = "Armored Double", FontSize = 10, Align = TextAnchor.MiddleCenter }
+            }, "Content");
+
+            y -= rowHeight + spacing;
+
+            // Test Door Access button
+            elements.Add(new CuiButton
+            {
+                Button = { Color = "0.3 0.4 0.5 1", Command = "hoodwars.admin testgrandmadooraccess" },
+                RectTransform = { AnchorMin = $"0.02 {y - rowHeight}", AnchorMax = $"0.48 {y}" },
+                Text = { Text = "Test Door Access", FontSize = 11, Align = TextAnchor.MiddleCenter }
+            }, "Content");
+
+            // Test C4 Reward button
+            elements.Add(new CuiButton
+            {
+                Button = { Color = "0.6 0.4 0.2 1", Command = "hoodwars.admin testc4reward" },
+                RectTransform = { AnchorMin = $"0.52 {y - rowHeight}", AnchorMax = $"0.98 {y}" },
+                Text = { Text = "Test C4 Reward", FontSize = 11, Align = TextAnchor.MiddleCenter }
+            }, "Content");
+
+            // Info text
+            elements.Add(new CuiLabel
+            {
+                Text = { Text = "Grandma's House Features:\n" +
+                               "• No building in grandma zone (like safezone)\n" +
+                               "• Gang members can open doors without code\n" +
+                               "• Enemies cannot open doors (but can raid)\n" +
+                               "• When grandma dies, killer's gang gets C4\n" +
+                               "• Victim's gang also gets C4 for revenge",
+                        FontSize = 10, Align = TextAnchor.MiddleLeft, Color = "0.7 0.7 0.7 1" },
+                RectTransform = { AnchorMin = "0.02 0.05", AnchorMax = "0.98 0.38" }
             }, "Content");
         }
 
