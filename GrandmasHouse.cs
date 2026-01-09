@@ -27,7 +27,11 @@ namespace Oxide.Plugins
         // Grandma's House locations (safezones with restricted building but doors can be raided)
         private Dictionary<string, GrandmaHouseZone> _grandmaHouseZones = new Dictionary<string, GrandmaHouseZone>();
         
+        // Sphere markers for grandma zones (like HQ spheres)
+        private Dictionary<string, SphereEntity> _grandmaSphereMarkers = new Dictionary<string, SphereEntity>();
+        
         private const string PrefabNPC = "assets/prefabs/player/player.prefab";
+        private const string PrefabSphere = "assets/prefabs/visualization/sphere.prefab";
         private const string PermAdmin = "grandmashouse.admin";
         private const string ItemC4 = "explosive.timed";
         
@@ -110,6 +114,15 @@ namespace Oxide.Plugins
             
             [JsonProperty("Allow Building In Grandma Zone")]
             public bool AllowBuildingInGrandmaZone { get; set; } = false;
+            
+            [JsonProperty("Show Grandma Zone Spheres")]
+            public bool ShowGrandmaSpheres { get; set; } = true;
+            
+            [JsonProperty("Grandma Sphere Opacity (0.0 to 1.0)")]
+            public float GrandmaSphereAlpha { get; set; } = 0.25f;
+            
+            [JsonProperty("Grandma Sphere Color (Hex)")]
+            public string GrandmaSphereColor { get; set; } = "#FFD700"; // Gold color
         }
 
         protected override void LoadDefaultConfig() => _config = new ConfigData();
@@ -152,6 +165,9 @@ namespace Oxide.Plugins
 
             foreach (var ent in _manualMatriarchs)
                 if (ent != null && !ent.IsDestroyed) ent.Kill();
+            
+            // Clean up all grandma spheres
+            ClearAllGrandmaSpheres();
         }
 
         private void SpawnAllMatriarchs()
@@ -199,6 +215,75 @@ namespace Oxide.Plugins
                 ManagedDoors = new List<ulong>()
             };
             Puts($"[GrandmasHouse] Created Grandma House zone for {gangName} at {center} with radius {_config.GrandmaHouseRadius}");
+            
+            // Create sphere visualization like HQ spheres
+            if (_config.ShowGrandmaSpheres)
+            {
+                CreateGrandmaSphere(gangName, center);
+            }
+        }
+        
+        private void CreateGrandmaSphere(string gangName, Vector3 center)
+        {
+            // Remove existing sphere if any
+            RemoveGrandmaSphere(gangName);
+            
+            // Position sphere slightly above terrain
+            float terrainHeight = TerrainMeta.HeightMap.GetHeight(center);
+            Vector3 sphereCenter = new Vector3(center.x, terrainHeight + 1f, center.z);
+            
+            var sphere = GameManager.server.CreateEntity(PrefabSphere, sphereCenter) as SphereEntity;
+            if (sphere == null) return;
+            
+            // SphereEntity.currentRadius is actually the diameter
+            sphere.currentRadius = _config.GrandmaHouseRadius * 2f;
+            sphere.lerpSpeed = 0f;
+            
+            sphere.Spawn();
+            
+            // Set sphere color
+            Color sphereColor;
+            if (!ColorUtility.TryParseHtmlString(_config.GrandmaSphereColor, out sphereColor))
+            {
+                sphereColor = Color.yellow;
+            }
+            
+            // Apply color and transparency
+            var renderer = sphere.GetComponentInChildren<MeshRenderer>();
+            if (renderer != null && renderer.sharedMaterial != null)
+            {
+                var mat = new Material(renderer.sharedMaterial);
+                sphereColor.a = _config.GrandmaSphereAlpha;
+                mat.color = sphereColor;
+                renderer.material = mat;
+            }
+            
+            _grandmaSphereMarkers[gangName] = sphere;
+            Puts($"[GrandmasHouse] Created sphere marker for {gangName} at {sphereCenter}");
+        }
+        
+        private void RemoveGrandmaSphere(string gangName)
+        {
+            if (_grandmaSphereMarkers.TryGetValue(gangName, out var sphere))
+            {
+                if (sphere != null && !sphere.IsDestroyed)
+                {
+                    sphere.Kill();
+                }
+                _grandmaSphereMarkers.Remove(gangName);
+            }
+        }
+        
+        private void ClearAllGrandmaSpheres()
+        {
+            foreach (var sphere in _grandmaSphereMarkers.Values)
+            {
+                if (sphere != null && !sphere.IsDestroyed)
+                {
+                    sphere.Kill();
+                }
+            }
+            _grandmaSphereMarkers.Clear();
         }
 
         private BaseEntity InternalSpawn(Vector3 pos, string gangName, bool isGrandma)
@@ -650,6 +735,67 @@ namespace Oxide.Plugins
             _manualMatriarchs.Clear();
             player.ChatMessage("Cleared manual NPCs.");
         }
+        
+        [ChatCommand("gzone")]
+        private void CmdGZone(BasePlayer player, string command, string[] args)
+        {
+            if (!player.IsAdmin && !permission.UserHasPermission(player.UserIDString, PermAdmin)) return;
+            if (args.Length < 2) { player.ChatMessage("Usage: /gzone create <gang_name> [radius]"); return; }
+            
+            string action = args[0].ToLower();
+            string gangName = args[1];
+            
+            if (action == "create")
+            {
+                float radius = args.Length > 2 && float.TryParse(args[2], out float r) ? r : _config.GrandmaHouseRadius;
+                CreateGrandmaHouseZone(gangName, player.transform.position);
+                player.ChatMessage($"<color=#55ff55>[GRANDMA'S HOUSE]</color> Created zone for {gangName} at your position with radius {radius}.");
+            }
+            else if (action == "remove")
+            {
+                if (_grandmaHouseZones.ContainsKey(gangName))
+                {
+                    _grandmaHouseZones.Remove(gangName);
+                    RemoveGrandmaSphere(gangName);
+                    player.ChatMessage($"<color=#55ff55>[GRANDMA'S HOUSE]</color> Removed zone for {gangName}.");
+                }
+                else
+                {
+                    player.ChatMessage($"<color=#ff4444>[ERROR]</color> No zone found for {gangName}.");
+                }
+            }
+            else if (action == "list")
+            {
+                player.ChatMessage("<color=#66ccff>=== Grandma Zones ===</color>");
+                foreach (var zone in _grandmaHouseZones.Values)
+                {
+                    player.ChatMessage($"• {zone.GangName} at ({zone.Center.x:F0}, {zone.Center.y:F0}, {zone.Center.z:F0}) r={zone.Radius}");
+                }
+            }
+        }
+        
+        [ChatCommand("gtoggleSpheres")]
+        private void CmdToggleSpheres(BasePlayer player)
+        {
+            if (!player.IsAdmin && !permission.UserHasPermission(player.UserIDString, PermAdmin)) return;
+            
+            _config.ShowGrandmaSpheres = !_config.ShowGrandmaSpheres;
+            SaveConfig();
+            
+            if (_config.ShowGrandmaSpheres)
+            {
+                foreach (var zone in _grandmaHouseZones)
+                {
+                    CreateGrandmaSphere(zone.Key, zone.Value.Center);
+                }
+                player.ChatMessage("<color=#55ff55>[GRANDMA'S HOUSE]</color> Sphere markers are now VISIBLE.");
+            }
+            else
+            {
+                ClearAllGrandmaSpheres();
+                player.ChatMessage("<color=#ffaa00>[GRANDMA'S HOUSE]</color> Sphere markers are now HIDDEN.");
+            }
+        }
 
         #endregion
 
@@ -698,10 +844,11 @@ namespace Oxide.Plugins
             _captors.Remove(entity);
             _surrenderedMatriarchs.Remove(entity);
             
-            // Remove grandma house zone when grandma dies
+            // Remove grandma house zone and sphere when grandma dies
             if (wasG)
             {
                 _grandmaHouseZones.Remove(gangOwner);
+                RemoveGrandmaSphere(gangOwner);
             }
             
             float penalty = wasG ? _config.Grandma.InfluencePenalty : _config.Mom.InfluencePenalty;

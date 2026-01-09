@@ -1469,6 +1469,18 @@ namespace Oxide.Plugins
                 case "spawnlayout":
                     SpawnLayoutFromAdmin(player);
                     break;
+                    
+                case "spawngrandmadoor":
+                    SpawnGrandmaDoorFromAdmin(player);
+                    break;
+                    
+                case "spawngrandmagaragedoor":
+                    SpawnGrandmaGarageDoorFromAdmin(player);
+                    break;
+                    
+                case "togglegrandmaspheres":
+                    ToggleGrandmaSpheresFromAdmin(player);
+                    break;
             }
         }
 
@@ -1885,6 +1897,56 @@ namespace Oxide.Plugins
                 return;
             }
             SendReply(player, "<color=#ffcc00>Use chat command: /spawnlayout <name></color>\nView available layouts with /listlayouts first.");
+        }
+        
+        private void SpawnGrandmaDoorFromAdmin(BasePlayer player)
+        {
+            if (ManualDoor == null || !ManualDoor.IsLoaded)
+            {
+                SendReply(player, "<color=#ff4444>ERROR:</color> ManualDoor plugin is not loaded.");
+                return;
+            }
+            
+            // Get player's gang for the door
+            var playerInfo = GetPlayerData(player.userID);
+            string gangName = "Neutral";
+            if (playerInfo.HomeHood != NeighborhoodType.Neutral)
+            {
+                var hoodConfig = GetNeighborhoodConfig(playerInfo.HomeHood);
+                gangName = hoodConfig?.Name ?? "Neutral";
+            }
+            
+            player.SendConsoleCommand("chat.say", $"/spawngrandmadoor {gangName}");
+        }
+        
+        private void SpawnGrandmaGarageDoorFromAdmin(BasePlayer player)
+        {
+            if (ManualDoor == null || !ManualDoor.IsLoaded)
+            {
+                SendReply(player, "<color=#ff4444>ERROR:</color> ManualDoor plugin is not loaded.");
+                return;
+            }
+            
+            // Get player's gang for the door
+            var playerInfo = GetPlayerData(player.userID);
+            string gangName = "Neutral";
+            if (playerInfo.HomeHood != NeighborhoodType.Neutral)
+            {
+                var hoodConfig = GetNeighborhoodConfig(playerInfo.HomeHood);
+                gangName = hoodConfig?.Name ?? "Neutral";
+            }
+            
+            player.SendConsoleCommand("chat.say", $"/spawngrandmagaragedoor {gangName}");
+        }
+        
+        private void ToggleGrandmaSpheresFromAdmin(BasePlayer player)
+        {
+            if (GrandmasHouse == null || !GrandmasHouse.IsLoaded)
+            {
+                SendReply(player, "<color=#ff4444>ERROR:</color> GrandmasHouse plugin is not loaded.");
+                return;
+            }
+            player.SendConsoleCommand("chat.say", "/gtoggleSpheres");
         }
 
         // Admin command to set the TC they're looking at as the HQ TC for a gang
@@ -2606,7 +2668,24 @@ namespace Oxide.Plugins
 
             y -= rowHeight + spacing;
 
-            // === Row 2: Door Spawning ===
+            // === Row 2: Grandma Door Spawning (with auto codelock) ===
+            elements.Add(new CuiButton
+            {
+                Button = { Color = manualDoorLoaded ? "0.6 0.5 0.2 1" : "0.4 0.4 0.4 1", Command = "hoodwars.admin spawngrandmadoor" },
+                RectTransform = { AnchorMin = $"0.02 {y - rowHeight}", AnchorMax = $"0.48 {y}" },
+                Text = { Text = "Grandma Door (Locked)", FontSize = 9, Align = TextAnchor.MiddleCenter }
+            }, "Content");
+
+            elements.Add(new CuiButton
+            {
+                Button = { Color = manualDoorLoaded ? "0.5 0.5 0.2 1" : "0.4 0.4 0.4 1", Command = "hoodwars.admin spawngrandmagaragedoor" },
+                RectTransform = { AnchorMin = $"0.52 {y - rowHeight}", AnchorMax = $"0.98 {y}" },
+                Text = { Text = "Grandma Garage (Locked)", FontSize = 9, Align = TextAnchor.MiddleCenter }
+            }, "Content");
+
+            y -= rowHeight + spacing;
+
+            // === Row 3: Regular Door Spawning ===
             elements.Add(new CuiButton
             {
                 Button = { Color = manualDoorLoaded ? "0.3 0.5 0.3 1" : "0.4 0.4 0.4 1", Command = "hoodwars.admin spawngaragedoor" },
@@ -2630,7 +2709,7 @@ namespace Oxide.Plugins
 
             y -= rowHeight + spacing;
 
-            // === Row 3: Door Management ===
+            // === Row 4: Door Management ===
             elements.Add(new CuiButton
             {
                 Button = { Color = manualDoorLoaded ? "0.3 0.4 0.6 1" : "0.4 0.4 0.4 1", Command = "hoodwars.admin dooredit" },
