@@ -3722,8 +3722,9 @@ namespace Oxide.Plugins
             return hqHood?.Name ?? "Neutral";
         }
 
-        // API method to get a player's gang name by user ID (used by GangKits)
-        private string GetPlayerGangName(ulong playerId)
+        // API method to get a player's gang name by user ID (used by GangKits, GrandmasHouse)
+        // NOTE: Must be public for Plugin.Call() to work from other plugins
+        public string GetPlayerGangName(ulong playerId)
         {
             Puts($"[DEBUG] GetPlayerGangName called for {playerId}");
             if (_config == null || _storedData == null)
