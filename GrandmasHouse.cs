@@ -684,10 +684,23 @@ namespace Oxide.Plugins
             string killerGang = "";
             if (killer != null && HoodWars != null)
             {
-                // Use direct method name without API_ prefix - Oxide reflection can call private methods
-                object result = HoodWars.Call("GetPlayerGangName", killer.userID);
-                killerGang = result?.ToString() ?? "";
-                Puts($"[GRANDMA DEBUG] Killer: {killer.displayName} (ID: {killer.userID}), KillerGang: {killerGang}, APIResult: {result}");
+                try
+                {
+                    Puts($"[GRANDMA DEBUG] About to call HoodWars.GetPlayerGangName for killer {killer.displayName} (ID: {killer.userID})");
+                    Puts($"[GRANDMA DEBUG] HoodWars plugin name: {HoodWars.Name}, version: {HoodWars.Version}");
+                    
+                    // Use direct method name without API_ prefix - Oxide reflection can call private methods
+                    object result = HoodWars.Call("GetPlayerGangName", killer.userID);
+                    
+                    Puts($"[GRANDMA DEBUG] HoodWars.Call returned: type={result?.GetType()?.Name ?? "null"}, value={result}");
+                    killerGang = result?.ToString() ?? "";
+                    Puts($"[GRANDMA DEBUG] Killer: {killer.displayName} (ID: {killer.userID}), KillerGang: {killerGang}, APIResult: {result}");
+                }
+                catch (Exception ex)
+                {
+                    Puts($"[GRANDMA DEBUG] ERROR calling HoodWars.GetPlayerGangName: {ex.Message}");
+                    Puts($"[GRANDMA DEBUG] Stack trace: {ex.StackTrace}");
+                }
             }
             else
             {
