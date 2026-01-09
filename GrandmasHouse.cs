@@ -65,6 +65,31 @@ namespace Oxide.Plugins
             public float Radius;
             public List<ulong> ManagedDoors = new List<ulong>(); // Door net IDs managed by this zone
         }
+        
+        #region HoodWars Data Types (for reading HoodWars_CoreData.json directly)
+        
+        // These mirror the data structures in HoodWars.cs for direct data file access
+        private class HoodWarsStoredData
+        {
+            public Dictionary<ulong, HoodWarsPlayerInfo> Players = new Dictionary<ulong, HoodWarsPlayerInfo>();
+        }
+        
+        private class HoodWarsPlayerInfo
+        {
+            public int HomeHood = 4; // 0=West (Pirus), 1=North (Vagos), 2=South (Surenos), 3=East (Disciples), 4=Neutral
+        }
+        
+        // Gang names corresponding to HomeHood values
+        private static readonly string[] GangNames = new string[]
+        {
+            "Westside Pirus",     // 0
+            "Northside Vagos",    // 1
+            "Southside Sureños",  // 2
+            "Eastside Disciples", // 3
+            "Neutral"             // 4
+        };
+        
+        #endregion
 
         #region Configuration
 
@@ -680,31 +705,16 @@ namespace Oxide.Plugins
             PrintToChat($"<color=#ffd700>★★★ STREET NEWS ★★★</color>");
             PrintToChat($"<color=#ff4444>TRAGEDY:</color> <color=#ffffff>{normalizedVictimGang}</color>'s <color=#ffffff>{matriarchName}</color> has been killed!");
             
-            // Get the killer's gang
+            // Get the killer's gang by reading directly from HoodWars data file (most reliable method)
             string killerGang = "";
-            if (killer != null && HoodWars != null)
+            if (killer != null)
             {
-                try
-                {
-                    Puts($"[GRANDMA DEBUG] About to call HoodWars.GetPlayerGangName for killer {killer.displayName} (ID: {killer.userID})");
-                    Puts($"[GRANDMA DEBUG] HoodWars plugin name: {HoodWars.Name}, version: {HoodWars.Version}");
-                    
-                    // Use direct method name without API_ prefix - Oxide reflection can call private methods
-                    object result = HoodWars.Call("GetPlayerGangName", killer.userID);
-                    
-                    Puts($"[GRANDMA DEBUG] HoodWars.Call returned: type={result?.GetType()?.Name ?? "null"}, value={result}");
-                    killerGang = result?.ToString() ?? "";
-                    Puts($"[GRANDMA DEBUG] Killer: {killer.displayName} (ID: {killer.userID}), KillerGang: {killerGang}, APIResult: {result}");
-                }
-                catch (Exception ex)
-                {
-                    Puts($"[GRANDMA DEBUG] ERROR calling HoodWars.GetPlayerGangName: {ex.Message}");
-                    Puts($"[GRANDMA DEBUG] Stack trace: {ex.StackTrace}");
-                }
+                killerGang = GetPlayerGangFromDataFile(killer.userID);
+                Puts($"[GRANDMA DEBUG] Killer: {killer.displayName} (ID: {killer.userID}), KillerGang: {killerGang}");
             }
             else
             {
-                Puts($"[GRANDMA DEBUG] No killer or HoodWars not available. killer={killer != null}, HoodWars={HoodWars != null}");
+                Puts($"[GRANDMA DEBUG] No killer specified");
             }
 
             // Reward the killer's gang with C4 if they killed an enemy's grandma
@@ -721,8 +731,8 @@ namespace Oxide.Plugins
                     int killerRewardCount = 0;
                     foreach (var player in BasePlayer.activePlayerList)
                     {
-                        object pGangResult = HoodWars?.Call("GetPlayerGangName", player.userID);
-                        string pGang = pGangResult?.ToString() ?? "";
+                        // Use direct data file access for getting player gang
+                        string pGang = GetPlayerGangFromDataFile(player.userID);
                         if (pGang == killerGang)
                         {
                             Item c4 = ItemManager.CreateByName(ItemC4, _config.C4RewardCount);
@@ -793,8 +803,8 @@ namespace Oxide.Plugins
             Vis.Entities(source.transform.position, radius, nearby);
             foreach (var player in nearby)
             {
-                object result = HoodWars != null ? HoodWars.Call("GetPlayerGangName", player.userID) : "Admin_Test";
-                string pGang = result?.ToString() ?? "Neutral";
+                // Use direct data file access for getting player gang
+                string pGang = GetPlayerGangFromDataFile(player.userID);
                 if (pGang == gangName || gangName == "Admin_Test") effect(player);
             }
         }
@@ -810,8 +820,9 @@ namespace Oxide.Plugins
                 Vis.Entities(grandma.transform.position, _config.Grandma.Radius, nearby);
                 
                 BasePlayer luckyMember = nearby.FirstOrDefault(p => {
-                    object result = HoodWars?.Call("GetPlayerGangName", p.userID);
-                    return (result?.ToString() ?? "Neutral") == kvp.Key;
+                    // Use direct data file access for getting player gang
+                    string pGang = GetPlayerGangFromDataFile(p.userID);
+                    return pGang == kvp.Key;
                 });
                 if (luckyMember != null)
                 {
@@ -1136,6 +1147,39 @@ namespace Oxide.Plugins
             return input; // Return as-is if no match
         }
         
+        /// <summary>
+        /// Get a player's gang name by reading directly from HoodWars_CoreData.json
+        /// This is the most reliable method since Plugin.Call() has issues with reflection
+        /// </summary>
+        private string GetPlayerGangFromDataFile(ulong playerId)
+        {
+            try
+            {
+                var dataFile = Interface.Oxide.DataFileSystem.GetFile("HoodWars_CoreData");
+                if (dataFile != null)
+                {
+                    var hoodWarsData = dataFile.ReadObject<HoodWarsStoredData>();
+                    if (hoodWarsData?.Players != null && hoodWarsData.Players.TryGetValue(playerId, out var playerInfo))
+                    {
+                        // HomeHood: 0=West (Pirus), 1=North (Vagos), 2=South (Surenos), 3=East (Disciples), 4=Neutral
+                        if (playerInfo.HomeHood >= 0 && playerInfo.HomeHood < GangNames.Length)
+                        {
+                            string gangName = GangNames[playerInfo.HomeHood];
+                            Puts($"[GRANDMA DEBUG] GetPlayerGangFromDataFile: playerId={playerId}, HomeHood={playerInfo.HomeHood}, gangName={gangName}");
+                            return gangName;
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Puts($"[GRANDMA DEBUG] GetPlayerGangFromDataFile ERROR: {ex.Message}");
+            }
+            
+            Puts($"[GRANDMA DEBUG] GetPlayerGangFromDataFile: playerId={playerId} not found in data file, returning Neutral");
+            return "Neutral";
+        }
+        
         [ChatCommand("gtoggleSpheres")]
         private void CmdToggleSpheres(BasePlayer player)
         {
@@ -1273,8 +1317,8 @@ namespace Oxide.Plugins
             // Check if building is allowed in grandma zones
             if (!_config.AllowBuildingInGrandmaZone)
             {
-                object gangResult = HoodWars?.Call("GetPlayerGangName", player.userID);
-                string playerGang = gangResult?.ToString() ?? "Neutral";
+                // Use direct data file access for getting player gang
+                string playerGang = GetPlayerGangFromDataFile(player.userID);
                 
                 // Even gang members can't build in grandma zones by default
                 player.ChatMessage($"<color=#ff4444>[GRANDMA'S HOUSE]</color> You cannot build near Grandma's house. This is sacred ground.");
@@ -1296,8 +1340,8 @@ namespace Oxide.Plugins
             var zone = GetGrandmaZoneAtPosition(door.transform.position);
             if (zone == null) return null;
             
-            object gangResult = HoodWars?.Call("GetPlayerGangName", player.userID);
-            string playerGang = gangResult?.ToString() ?? "Neutral";
+            // Use direct data file access for getting player gang
+            string playerGang = GetPlayerGangFromDataFile(player.userID);
             
             // Gang members can always open doors at grandma's house
             if (playerGang == zone.GangName)
@@ -1322,8 +1366,8 @@ namespace Oxide.Plugins
             var zone = GetGrandmaZoneAtPosition(door.transform.position);
             if (zone == null) return null;
             
-            object gangResult = HoodWars?.Call("GetPlayerGangName", player.userID);
-            string playerGang = gangResult?.ToString() ?? "Neutral";
+            // Use direct data file access for getting player gang
+            string playerGang = GetPlayerGangFromDataFile(player.userID);
             
             // Gang members can always open doors at grandma's house
             if (playerGang == zone.GangName)
@@ -1382,8 +1426,8 @@ namespace Oxide.Plugins
             var zone = GetGrandmaZoneAtPosition(position);
             if (zone == null) return true; // Not in a grandma zone
             
-            object gangResult = HoodWars?.Call("GetPlayerGangName", playerId);
-            string playerGang = gangResult?.ToString() ?? "Neutral";
+            // Use direct data file access for getting player gang
+            string playerGang = GetPlayerGangFromDataFile(playerId);
             return playerGang == zone.GangName;
         }
         
