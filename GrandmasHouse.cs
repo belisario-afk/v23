@@ -670,23 +670,30 @@ namespace Oxide.Plugins
         private void TriggerRetaliation(string victimGangName, string matriarchName, BasePlayer killer = null)
         {
             if (string.IsNullOrEmpty(victimGangName)) return;
+            
+            // Normalize victim gang name to full format
+            string normalizedVictimGang = ResolveGangName(victimGangName);
+            
+            Puts($"[GRANDMA DEBUG] TriggerRetaliation called: victimGangName={victimGangName}, normalized={normalizedVictimGang}, matriarchName={matriarchName}");
 
             // Notify the victim's gang about the death
             PrintToChat($"<color=#ffd700>★★★ STREET NEWS ★★★</color>");
-            PrintToChat($"<color=#ff4444>TRAGEDY:</color> <color=#ffffff>{victimGangName}</color>'s <color=#ffffff>{matriarchName}</color> has been killed!");
+            PrintToChat($"<color=#ff4444>TRAGEDY:</color> <color=#ffffff>{normalizedVictimGang}</color>'s <color=#ffffff>{matriarchName}</color> has been killed!");
             
             // Get the killer's gang
             string killerGang = "Neutral";
             if (killer != null && HoodWars != null)
             {
                 killerGang = HoodWars.Call<string>("GetPlayerGangName", killer.userID) ?? "Neutral";
+                Puts($"[GRANDMA DEBUG] Killer: {killer.displayName}, KillerGang: {killerGang}");
             }
 
             // Reward the killer's gang with C4 if they're from a different gang
-            if (killer != null && killerGang != "Neutral" && killerGang != victimGangName)
+            if (killer != null && killerGang != "Neutral" && killerGang != normalizedVictimGang)
             {
                 PrintToChat($"<color=#55ff55>STREET JUSTICE:</color> <color=#ffffff>{killerGang}</color> earned rewards for taking out {matriarchName}!");
 
+                int killerRewardCount = 0;
                 foreach (var player in BasePlayer.activePlayerList)
                 {
                     string pGang = HoodWars?.Call<string>("GetPlayerGangName", player.userID) ?? "Neutral";
@@ -696,20 +703,24 @@ namespace Oxide.Plugins
                         if (c4 != null)
                         {
                             player.GiveItem(c4);
-                            player.ChatMessage($"<color=#55ff55>[GANG REWARD]</color> You received {_config.C4RewardCount} C4 for taking out {victimGangName}'s {matriarchName}!");
+                            player.ChatMessage($"<color=#55ff55>[GANG REWARD]</color> You received {_config.C4RewardCount} C4 for taking out {normalizedVictimGang}'s {matriarchName}!");
                             Effect.server.Run("assets/prefabs/tools/timed.explosive.charge/effects/impact.prefab", player.transform.position);
+                            killerRewardCount++;
                         }
                     }
                 }
+                Puts($"[GRANDMA DEBUG] Killer gang rewards given to {killerRewardCount} players");
             }
             
             // Give retaliation loadout to victim's gang
-            PrintToChat($"<color=#ffd700>RETALIATION LOADOUT GRANTED TO ALL {victimGangName.ToUpper()} MEMBERS.</color>");
+            PrintToChat($"<color=#ffd700>RETALIATION LOADOUT GRANTED TO ALL {normalizedVictimGang.ToUpper()} MEMBERS.</color>");
 
+            int victimRewardCount = 0;
             foreach (var player in BasePlayer.activePlayerList)
             {
                 string pGang = HoodWars?.Call<string>("GetPlayerGangName", player.userID) ?? "Neutral";
-                if (pGang == victimGangName)
+                Puts($"[GRANDMA DEBUG] Checking player {player.displayName}: pGang={pGang}, victimGang={normalizedVictimGang}, match={pGang == normalizedVictimGang}");
+                if (pGang == normalizedVictimGang)
                 {
                     Item c4 = ItemManager.CreateByName(ItemC4, _config.C4RewardCount);
                     if (c4 != null)
@@ -717,9 +728,11 @@ namespace Oxide.Plugins
                         player.GiveItem(c4);
                         player.ChatMessage($"<color=#ff4444>[GANG LOADOUT]</color> You received {_config.C4RewardCount} C4. Go get your revenge!");
                         Effect.server.Run("assets/prefabs/tools/timed.explosive.charge/effects/impact.prefab", player.transform.position);
+                        victimRewardCount++;
                     }
                 }
             }
+            Puts($"[GRANDMA DEBUG] Victim gang rewards given to {victimRewardCount} players");
         }
 
         #endregion
@@ -1189,12 +1202,16 @@ namespace Oxide.Plugins
                     if (displayName.Contains("'s"))
                     {
                         gangOwner = displayName.Split(new[] { "'s" }, StringSplitOptions.None)[0];
+                        // Normalize the gang name to ensure it matches HoodWars format
+                        gangOwner = ResolveGangName(gangOwner);
                     }
                     else if (displayName.Contains("Piru")) gangOwner = "Westside Pirus";
                     else if (displayName.Contains("Vago")) gangOwner = "Northside Vagos";
                     else if (displayName.Contains("Sureño") || displayName.Contains("Sureno")) gangOwner = "Southside Sureños";
                     else if (displayName.Contains("Disciple")) gangOwner = "Eastside Disciples";
                     else gangOwner = "TestHood"; // Fallback for test spawns
+                    
+                    Puts($"[GRANDMA DEBUG] OnEntityDeath: displayName={displayName}, gangOwner={gangOwner}, wasG={wasG}");
                 }
             }
 
