@@ -1054,6 +1054,10 @@ namespace Oxide.Plugins
                 lockEnt.SetParent(ent, "lock");
                 lockEnt.OwnerID = info.OwnerId != 0 ? info.OwnerId : player.userID;
                 lockEnt.Spawn();
+                
+                // Register the lock with the door's slot system
+                ent.SetSlot(BaseEntity.Slot.Lock, lockEnt);
+                
                 codeLock = lockEnt as CodeLock;
             }
 
@@ -2196,6 +2200,9 @@ namespace Oxide.Plugins
                         lockEnt.skinID = CodeLockSkinId;
                         
                     lockEnt.Spawn();
+                    
+                    // Register the lock with the door's slot system
+                    ent.SetSlot(BaseEntity.Slot.Lock, lockEnt);
 
                     var cl = lockEnt as CodeLock;
                     if (cl != null)
@@ -2228,6 +2235,9 @@ namespace Oxide.Plugins
                 lockEnt.skinID = CodeLockSkinId;
                 
             lockEnt.Spawn();
+            
+            // Register the lock with the door's slot system so it's recognized as attached
+            door.SetSlot(BaseEntity.Slot.Lock, lockEnt);
 
             return lockEnt as CodeLock;
         }
@@ -2251,6 +2261,9 @@ namespace Oxide.Plugins
                 lockEnt.skinID = CodeLockSkinId;
                 
             lockEnt.Spawn();
+            
+            // Register the lock with the door's slot system so it's recognized as attached
+            door.SetSlot(BaseEntity.Slot.Lock, lockEnt);
 
             var cl = lockEnt as CodeLock;
             if (cl != null)
