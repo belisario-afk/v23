@@ -1955,17 +1955,10 @@ namespace Oxide.Plugins
                 return;
             }
             
-            // Get player's gang name for the layout
-            var playerInfo = GetPlayerData(player.userID);
-            string gangName = "grandma";
-            if (playerInfo.HomeHood != NeighborhoodType.Neutral)
-            {
-                var hoodConfig = GetNeighborhoodConfig(playerInfo.HomeHood);
-                gangName = hoodConfig?.Name?.ToLower().Replace(" ", "") ?? "grandma";
-            }
-            
-            string layoutName = $"grandma_{gangName}_{DateTime.Now:yyyyMMdd_HHmm}";
-            player.SendConsoleCommand("chat.say", $"/savegrandmalayout {layoutName} {gangName}");
+            // Save ALL grandma doors from all gangs with a timestamped layout name
+            string layoutName = $"grandma_all_{DateTime.Now:yyyyMMdd_HHmm}";
+            player.SendConsoleCommand("chat.say", $"/saveallgrandmalayouts {layoutName}");
+            SendReply(player, $"<color=#55ff55>Saving all grandma doors to layout '{layoutName}'...</color>");
         }
         
         private void ListLayoutsFromAdmin(BasePlayer player)
@@ -3007,9 +3000,9 @@ namespace Oxide.Plugins
             // Info text at bottom
             elements.Add(new CuiLabel
             {
-                Text = { Text = "Commands: /savegrandmalayout <name> <gang>, /spawnlayout <name>\n" +
-                               "/spawngaragedoor, /spawnarmoreddoor, /addsphere [r], /removesphere\n" +
-                               "/dooredit, /doorinfo, /removedoor, /resetdoor, /claimdoor",
+                Text = { Text = "Commands: /saveallgrandmalayouts <name> (saves all gangs)\n" +
+                               "/savegrandmalayout <name> <gang> (saves one gang: Pirus, Vagos, Surenos, Disciples)\n" +
+                               "/spawngrandma <gang>, /killgrandma [gang], /spawnlayout <name>",
                         FontSize = 9, Align = TextAnchor.MiddleLeft, Color = "0.6 0.6 0.6 1" },
                 RectTransform = { AnchorMin = "0.02 0.02", AnchorMax = "0.98 0.14" }
             }, "Content");

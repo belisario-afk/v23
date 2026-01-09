@@ -819,6 +819,147 @@ namespace Oxide.Plugins
             player.ChatMessage("Cleared manual NPCs.");
         }
         
+        /// <summary>
+        /// Alias for /gclear - clears all manually spawned grandmas
+        /// </summary>
+        [ChatCommand("cleargrandma")]
+        private void CmdClearGrandma(BasePlayer player)
+        {
+            CmdGClear(player);
+        }
+        
+        /// <summary>
+        /// Spawn a grandma for a specific gang at the player's location
+        /// Usage: /spawngrandma [gang_name]
+        /// If no gang name is specified, spawns a generic "Test" grandma
+        /// </summary>
+        [ChatCommand("spawngrandma")]
+        private void CmdSpawnGrandma(BasePlayer player, string command, string[] args)
+        {
+            if (!player.IsAdmin && !permission.UserHasPermission(player.UserIDString, PermAdmin)) return;
+            
+            string gangName = "TestHood";
+            if (args.Length > 0)
+            {
+                gangName = ResolveGangName(args[0]);
+            }
+            
+            BaseEntity ent = InternalSpawn(player.transform.position, gangName, true);
+            if (ent != null)
+            {
+                _manualMatriarchs.Add(ent);
+                player.ChatMessage($"<color=#55ff55>[GRANDMA]</color> Spawned Grandma for {gangName} at your location.");
+                
+                // Also create a grandma house zone if spawning for a real gang
+                if (gangName != "TestHood")
+                {
+                    CreateGrandmaHouseZone(gangName, player.transform.position);
+                }
+            }
+            else
+            {
+                player.ChatMessage("<color=#ff4444>[ERROR]</color> Failed to spawn Grandma.");
+            }
+        }
+        
+        /// <summary>
+        /// Spawn a mom for a specific gang at the player's location
+        /// Usage: /spawnmom [gang_name]
+        /// </summary>
+        [ChatCommand("spawnmom")]
+        private void CmdSpawnMom(BasePlayer player, string command, string[] args)
+        {
+            if (!player.IsAdmin && !permission.UserHasPermission(player.UserIDString, PermAdmin)) return;
+            
+            string gangName = "TestHood";
+            if (args.Length > 0)
+            {
+                gangName = ResolveGangName(args[0]);
+            }
+            
+            BaseEntity ent = InternalSpawn(player.transform.position, gangName, false);
+            if (ent != null)
+            {
+                _manualMatriarchs.Add(ent);
+                player.ChatMessage($"<color=#55ff55>[MOM]</color> Spawned Mom for {gangName} at your location.");
+            }
+            else
+            {
+                player.ChatMessage("<color=#ff4444>[ERROR]</color> Failed to spawn Mom.");
+            }
+        }
+        
+        /// <summary>
+        /// Kill all grandmas for a specific gang, or all if no gang specified
+        /// Usage: /killgrandma [gang_name]
+        /// </summary>
+        [ChatCommand("killgrandma")]
+        private void CmdKillGrandma(BasePlayer player, string command, string[] args)
+        {
+            if (!player.IsAdmin && !permission.UserHasPermission(player.UserIDString, PermAdmin)) return;
+            
+            int killed = 0;
+            
+            if (args.Length > 0)
+            {
+                // Kill specific gang's grandmas
+                string gangName = ResolveGangName(args[0]);
+                
+                // Kill from active matriarchs
+                if (_activeMatriarchs.TryGetValue(gangName, out var set))
+                {
+                    if (set.Grandma != null && !set.Grandma.IsDestroyed)
+                    {
+                        set.Grandma.Kill();
+                        killed++;
+                    }
+                }
+                
+                // Kill from manual matriarchs that belong to this gang
+                for (int i = _manualMatriarchs.Count - 1; i >= 0; i--)
+                {
+                    var ent = _manualMatriarchs[i];
+                    if (ent == null || ent.IsDestroyed) continue;
+                    var npc = ent as BasePlayer;
+                    if (npc != null && npc.displayName.Contains(gangName))
+                    {
+                        ent.Kill();
+                        _manualMatriarchs.RemoveAt(i);
+                        killed++;
+                    }
+                }
+                
+                player.ChatMessage($"<color=#ff4444>[GRANDMA]</color> Killed {killed} grandma(s) for {gangName}.");
+            }
+            else
+            {
+                // Kill all grandmas
+                foreach (var set in _activeMatriarchs.Values)
+                {
+                    if (set.Grandma != null && !set.Grandma.IsDestroyed)
+                    {
+                        set.Grandma.Kill();
+                        killed++;
+                    }
+                }
+                
+                for (int i = _manualMatriarchs.Count - 1; i >= 0; i--)
+                {
+                    var ent = _manualMatriarchs[i];
+                    if (ent == null || ent.IsDestroyed) continue;
+                    var npc = ent as BasePlayer;
+                    if (npc != null && npc.displayName.Contains("Grandma"))
+                    {
+                        ent.Kill();
+                        _manualMatriarchs.RemoveAt(i);
+                        killed++;
+                    }
+                }
+                
+                player.ChatMessage($"<color=#ff4444>[GRANDMA]</color> Killed {killed} grandma(s).");
+            }
+        }
+        
         [ChatCommand("gzone")]
         private void CmdGZone(BasePlayer player, string command, string[] args)
         {

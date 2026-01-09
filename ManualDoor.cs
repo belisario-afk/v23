@@ -1418,8 +1418,9 @@ namespace Oxide.Plugins
         }
 
         /// <summary>
-        /// Save only grandma zone doors as a layout.
+        /// Save only grandma zone doors as a layout for a specific gang.
         /// Usage: /savegrandmalayout <name> <gang_name>
+        /// Gang names: Pirus, Vagos, Surenos, Disciples (or full names)
         /// </summary>
         [ChatCommand("savegrandmalayout")]
         private void CmdSaveGrandmaLayout(BasePlayer player, string cmd, string[] args)
@@ -1432,35 +1433,38 @@ namespace Oxide.Plugins
 
             if (args.Length < 2)
             {
-                SendReply(player, "<color=#ffcc00>Usage: /savegrandmalayout <name> <gang_name></color>");
+                SendReply(player, "<color=#ffcc00>Usage: /savegrandmalayout <layout_name> <gang_name></color>\n" +
+                    "Gang names: Pirus, Vagos, Surenos, Disciples\n" +
+                    "Example: /savegrandmalayout pirus_house Pirus");
                 return;
             }
 
             string layoutName = args[0].ToLower();
-            string gangName = args[1];
+            string gangName = ResolveGangName(args[1]);
 
-            // Get only doors in grandma zones or doors with matching gang
-            var grandmaDoors = data.Doors.Values
-                .Where(d => !string.IsNullOrEmpty(d.GrandmaZoneGang) || d.DoorType > 0)
+            // Get only doors that belong to this specific gang
+            var gangDoors = data.Doors.Values
+                .Where(d => d.GrandmaZoneGang == gangName)
                 .ToList();
 
-            if (grandmaDoors.Count == 0)
+            if (gangDoors.Count == 0)
             {
-                SendReply(player, "<color=#ff6666>No grandma doors found to save. Spawn armored/garage doors first.</color>");
+                SendReply(player, $"<color=#ff6666>No doors found for gang '{gangName}'.</color>\n" +
+                    $"Use /spawngrandmadoor {args[1]} or /spawngrandmagaragedoor {args[1]} to create doors first.");
                 return;
             }
 
-            // Calculate centroid
+            // Calculate centroid of this gang's doors
             float originX = 0, originY = 0, originZ = 0;
-            foreach (var door in grandmaDoors)
+            foreach (var door in gangDoors)
             {
                 originX += door.PosX;
                 originY += door.PosY;
                 originZ += door.PosZ;
             }
-            originX /= grandmaDoors.Count;
-            originY /= grandmaDoors.Count;
-            originZ /= grandmaDoors.Count;
+            originX /= gangDoors.Count;
+            originY /= gangDoors.Count;
+            originZ /= gangDoors.Count;
 
             var layout = new DoorLayoutInfo
             {
@@ -1469,7 +1473,7 @@ namespace Oxide.Plugins
                 SavedOriginZ = originZ
             };
 
-            foreach (var door in grandmaDoors)
+            foreach (var door in gangDoors)
             {
                 layout.Entries.Add(new DoorLayoutEntry
                 {
@@ -1484,7 +1488,7 @@ namespace Oxide.Plugins
                     DoorType = door.DoorType,
                     HasSphere = door.HasSphere,
                     SphereRadius = door.SphereRadius,
-                    GrandmaZoneGang = gangName // Force the gang name for all saved doors
+                    GrandmaZoneGang = gangName // Preserve the correct gang name
                 });
             }
 
@@ -1494,7 +1498,96 @@ namespace Oxide.Plugins
             data.SavedLayouts[layoutName] = layout;
             SaveData();
 
-            SendReply(player, $"<color=#66ff66>Grandma layout '{layoutName}' saved with {layout.Entries.Count} doors for gang '{gangName}'.</color>");
+            SendReply(player, $"<color=#66ff66>Layout '{layoutName}' saved with {layout.Entries.Count} doors for '{gangName}'.</color>");
+        }
+        
+        /// <summary>
+        /// Save ALL grandma doors from all gangs as a single layout (preserves each door's gang).
+        /// Usage: /saveallgrandmalayouts <name>
+        /// </summary>
+        [ChatCommand("saveallgrandmalayouts")]
+        private void CmdSaveAllGrandmaLayouts(BasePlayer player, string cmd, string[] args)
+        {
+            if (!permission.UserHasPermission(player.UserIDString, AdminPermission))
+            {
+                SendReply(player, "<color=#ff6666>Permission denied.</color>");
+                return;
+            }
+
+            if (args.Length < 1)
+            {
+                SendReply(player, "<color=#ffcc00>Usage: /saveallgrandmalayouts <layout_name></color>\n" +
+                    "This saves ALL grandma doors from all gangs, preserving each door's gang assignment.");
+                return;
+            }
+
+            string layoutName = args[0].ToLower();
+
+            // Get all doors that have a gang assignment
+            var allGangDoors = data.Doors.Values
+                .Where(d => !string.IsNullOrEmpty(d.GrandmaZoneGang))
+                .ToList();
+
+            if (allGangDoors.Count == 0)
+            {
+                SendReply(player, "<color=#ff6666>No grandma doors found. Use /spawngrandmadoor <gang> to create doors first.</color>");
+                return;
+            }
+
+            // Calculate centroid
+            float originX = 0, originY = 0, originZ = 0;
+            foreach (var door in allGangDoors)
+            {
+                originX += door.PosX;
+                originY += door.PosY;
+                originZ += door.PosZ;
+            }
+            originX /= allGangDoors.Count;
+            originY /= allGangDoors.Count;
+            originZ /= allGangDoors.Count;
+
+            var layout = new DoorLayoutInfo
+            {
+                SavedOriginX = originX,
+                SavedOriginY = originY,
+                SavedOriginZ = originZ
+            };
+
+            // Group by gang for reporting
+            var gangCounts = new Dictionary<string, int>();
+
+            foreach (var door in allGangDoors)
+            {
+                layout.Entries.Add(new DoorLayoutEntry
+                {
+                    OffsetX = door.PosX - originX,
+                    OffsetY = door.PosY - originY,
+                    OffsetZ = door.PosZ - originZ,
+                    RotX = door.RotX,
+                    RotY = door.RotY,
+                    RotZ = door.RotZ,
+                    RotW = door.RotW,
+                    IsDoubleDoor = door.IsDoubleDoor,
+                    DoorType = door.DoorType,
+                    HasSphere = door.HasSphere,
+                    SphereRadius = door.SphereRadius,
+                    GrandmaZoneGang = door.GrandmaZoneGang // Preserve original gang assignment
+                });
+                
+                if (!gangCounts.ContainsKey(door.GrandmaZoneGang))
+                    gangCounts[door.GrandmaZoneGang] = 0;
+                gangCounts[door.GrandmaZoneGang]++;
+            }
+
+            if (data.SavedLayouts == null)
+                data.SavedLayouts = new Dictionary<string, DoorLayoutInfo>();
+
+            data.SavedLayouts[layoutName] = layout;
+            SaveData();
+
+            string gangSummary = string.Join(", ", gangCounts.Select(g => $"{g.Key}: {g.Value}"));
+            SendReply(player, $"<color=#66ff66>Layout '{layoutName}' saved with {layout.Entries.Count} total doors.</color>\n" +
+                $"Gang breakdown: {gangSummary}");
         }
 
         /// <summary>
@@ -1562,6 +1655,35 @@ namespace Oxide.Plugins
 
             SaveData();
             SendReply(player, $"<color=#66ff66>Moved {moved} doors by offset ({x:F2}, {y:F2}, {z:F2})</color>");
+        }
+        
+        /// <summary>
+        /// Resolve partial gang names to full gang names
+        /// </summary>
+        private string ResolveGangName(string input)
+        {
+            if (string.IsNullOrEmpty(input)) return input;
+            
+            input = input.ToLower().Trim();
+            
+            // Check for partial matches
+            if (input.Contains("piru") || input.Contains("west") || input == "p")
+                return "Westside Pirus";
+            if (input.Contains("vago") || input.Contains("north") || input == "v")
+                return "Northside Vagos";
+            if (input.Contains("sure") || input.Contains("south") || input == "s" || input.Contains("sureno"))
+                return "Southside Sureños";
+            if (input.Contains("disc") || input.Contains("east") || input == "d" || input.Contains("disciple"))
+                return "Eastside Disciples";
+            
+            // Check for exact full names (case insensitive)
+            if (input == "westside pirus") return "Westside Pirus";
+            if (input == "northside vagos") return "Northside Vagos";
+            if (input == "southside sureños" || input == "southside surenos") return "Southside Sureños";
+            if (input == "eastside disciples") return "Eastside Disciples";
+            
+            // Return as-is if no match (capitalize first letter)
+            return char.ToUpper(input[0]) + input.Substring(1);
         }
 
         #endregion
