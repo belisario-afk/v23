@@ -684,8 +684,8 @@ namespace Oxide.Plugins
             string killerGang = "";
             if (killer != null && HoodWars != null)
             {
-                // Use proper API method name - must use API_ prefix for cross-plugin calls
-                object result = HoodWars.Call("API_GetPlayerGangName", killer.userID);
+                // Use direct method name without API_ prefix - Oxide reflection can call private methods
+                object result = HoodWars.Call("GetPlayerGangName", killer.userID);
                 killerGang = result?.ToString() ?? "";
                 Puts($"[GRANDMA DEBUG] Killer: {killer.displayName} (ID: {killer.userID}), KillerGang: {killerGang}, APIResult: {result}");
             }
@@ -708,7 +708,7 @@ namespace Oxide.Plugins
                     int killerRewardCount = 0;
                     foreach (var player in BasePlayer.activePlayerList)
                     {
-                        object pGangResult = HoodWars?.Call("API_GetPlayerGangName", player.userID);
+                        object pGangResult = HoodWars?.Call("GetPlayerGangName", player.userID);
                         string pGang = pGangResult?.ToString() ?? "";
                         if (pGang == killerGang)
                         {
@@ -780,7 +780,7 @@ namespace Oxide.Plugins
             Vis.Entities(source.transform.position, radius, nearby);
             foreach (var player in nearby)
             {
-                object result = HoodWars != null ? HoodWars.Call("API_GetPlayerGangName", player.userID) : "Admin_Test";
+                object result = HoodWars != null ? HoodWars.Call("GetPlayerGangName", player.userID) : "Admin_Test";
                 string pGang = result?.ToString() ?? "Neutral";
                 if (pGang == gangName || gangName == "Admin_Test") effect(player);
             }
@@ -797,7 +797,7 @@ namespace Oxide.Plugins
                 Vis.Entities(grandma.transform.position, _config.Grandma.Radius, nearby);
                 
                 BasePlayer luckyMember = nearby.FirstOrDefault(p => {
-                    object result = HoodWars?.Call("API_GetPlayerGangName", p.userID);
+                    object result = HoodWars?.Call("GetPlayerGangName", p.userID);
                     return (result?.ToString() ?? "Neutral") == kvp.Key;
                 });
                 if (luckyMember != null)
@@ -1260,7 +1260,7 @@ namespace Oxide.Plugins
             // Check if building is allowed in grandma zones
             if (!_config.AllowBuildingInGrandmaZone)
             {
-                object gangResult = HoodWars?.Call("API_GetPlayerGangName", player.userID);
+                object gangResult = HoodWars?.Call("GetPlayerGangName", player.userID);
                 string playerGang = gangResult?.ToString() ?? "Neutral";
                 
                 // Even gang members can't build in grandma zones by default
@@ -1283,7 +1283,7 @@ namespace Oxide.Plugins
             var zone = GetGrandmaZoneAtPosition(door.transform.position);
             if (zone == null) return null;
             
-            object gangResult = HoodWars?.Call("API_GetPlayerGangName", player.userID);
+            object gangResult = HoodWars?.Call("GetPlayerGangName", player.userID);
             string playerGang = gangResult?.ToString() ?? "Neutral";
             
             // Gang members can always open doors at grandma's house
@@ -1309,7 +1309,7 @@ namespace Oxide.Plugins
             var zone = GetGrandmaZoneAtPosition(door.transform.position);
             if (zone == null) return null;
             
-            object gangResult = HoodWars?.Call("API_GetPlayerGangName", player.userID);
+            object gangResult = HoodWars?.Call("GetPlayerGangName", player.userID);
             string playerGang = gangResult?.ToString() ?? "Neutral";
             
             // Gang members can always open doors at grandma's house
@@ -1369,7 +1369,7 @@ namespace Oxide.Plugins
             var zone = GetGrandmaZoneAtPosition(position);
             if (zone == null) return true; // Not in a grandma zone
             
-            object gangResult = HoodWars?.Call("API_GetPlayerGangName", playerId);
+            object gangResult = HoodWars?.Call("GetPlayerGangName", playerId);
             string playerGang = gangResult?.ToString() ?? "Neutral";
             return playerGang == zone.GangName;
         }
