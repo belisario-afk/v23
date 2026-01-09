@@ -44,6 +44,10 @@ namespace Oxide.Plugins
         // GrandmasHouse plugin reference for grandma zone integration
         [PluginReference]
         private Plugin GrandmasHouse;
+        
+        // WelcomeScreen plugin reference for welcome screen integration
+        [PluginReference]
+        private Plugin WelcomeScreen;
 
         private const string PrefabMarker = "assets/prefabs/tools/map/genericradiusmarker.prefab";
         private const string PrefabSphere = "assets/prefabs/visualization/sphere.prefab";
@@ -2370,6 +2374,16 @@ namespace Oxide.Plugins
                 Button = { Color = driveByLoaded ? "0.6 0.3 0.3 1" : "0.4 0.4 0.4 1", Command = "hoodwars.admin testdriveby" },
                 RectTransform = { AnchorMin = "0.66 0.05", AnchorMax = "0.98 0.13" },
                 Text = { Text = driveByLoaded ? "Test Drive-By" : "DriveBy N/A", FontSize = 9, Align = TextAnchor.MiddleCenter }
+            }, "Content");
+            
+            // WelcomeScreen integration note
+            bool welcomeScreenLoaded = WelcomeScreen != null && WelcomeScreen.IsLoaded;
+            string welcomeStatus = welcomeScreenLoaded ? "<color=#55ff55>LOADED</color>" : "<color=#ff4444>NOT LOADED</color>";
+            elements.Add(new CuiLabel
+            {
+                Text = { Text = $"WelcomeScreen: {welcomeStatus} | Use /welcome to test", 
+                        FontSize = 10, Align = TextAnchor.MiddleCenter, Color = "0.6 0.6 0.6 1" },
+                RectTransform = { AnchorMin = "0.02 0.00", AnchorMax = "0.98 0.04" }
             }, "Content");
         }
         
