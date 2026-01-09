@@ -251,8 +251,8 @@ namespace Oxide.Plugins
             if (isGrandma) 
             {
                 _activeMatriarchs[gangName].Grandma = ent;
-                // Create grandma house zone around the grandma
-                CreateGrandmaHouseZone(gangName, spawnPos);
+                // NOTE: Zones are set independently via /gzoneset - auto-spawning grandma does NOT affect zones
+                // This allows admins to set up zone locations that persist across grandma deaths/respawns
             }
             else 
             {
@@ -676,40 +676,59 @@ namespace Oxide.Plugins
             
             Puts($"[GRANDMA DEBUG] TriggerRetaliation called: victimGangName={victimGangName}, normalized={normalizedVictimGang}, matriarchName={matriarchName}");
 
-            // Notify the victim's gang about the death
+            // Notify everyone about the death
             PrintToChat($"<color=#ffd700>★★★ STREET NEWS ★★★</color>");
             PrintToChat($"<color=#ff4444>TRAGEDY:</color> <color=#ffffff>{normalizedVictimGang}</color>'s <color=#ffffff>{matriarchName}</color> has been killed!");
             
             // Get the killer's gang
-            string killerGang = "Neutral";
+            string killerGang = "";
             if (killer != null && HoodWars != null)
             {
-                killerGang = HoodWars.Call<string>("GetPlayerGangName", killer.userID) ?? "Neutral";
-                Puts($"[GRANDMA DEBUG] Killer: {killer.displayName}, KillerGang: {killerGang}");
+                killerGang = HoodWars.Call<string>("GetPlayerGangName", killer.userID) ?? "";
+                Puts($"[GRANDMA DEBUG] Killer: {killer.displayName} (ID: {killer.userID}), KillerGang: {killerGang}");
+            }
+            else
+            {
+                Puts($"[GRANDMA DEBUG] No killer or HoodWars not available. killer={killer != null}, HoodWars={HoodWars != null}");
             }
 
-            // Reward the killer's gang with C4 if they're from a different gang
-            if (killer != null && killerGang != "Neutral" && killerGang != normalizedVictimGang)
+            // Reward the killer's gang with C4 if they killed an enemy's grandma
+            if (killer != null && !string.IsNullOrEmpty(killerGang) && killerGang != "Neutral")
             {
-                PrintToChat($"<color=#55ff55>STREET JUSTICE:</color> <color=#ffffff>{killerGang}</color> earned rewards for taking out {matriarchName}!");
-
-                int killerRewardCount = 0;
-                foreach (var player in BasePlayer.activePlayerList)
+                // Check if killer's gang is different from victim's gang
+                bool isDifferentGang = killerGang != normalizedVictimGang;
+                Puts($"[GRANDMA DEBUG] Checking reward eligibility: killerGang={killerGang}, victimGang={normalizedVictimGang}, isDifferentGang={isDifferentGang}");
+                
+                if (isDifferentGang)
                 {
-                    string pGang = HoodWars?.Call<string>("GetPlayerGangName", player.userID) ?? "Neutral";
-                    if (pGang == killerGang)
+                    PrintToChat($"<color=#55ff55>STREET JUSTICE:</color> <color=#ffffff>{killerGang}</color> earned rewards for taking out {matriarchName}!");
+
+                    int killerRewardCount = 0;
+                    foreach (var player in BasePlayer.activePlayerList)
                     {
-                        Item c4 = ItemManager.CreateByName(ItemC4, _config.C4RewardCount);
-                        if (c4 != null)
+                        string pGang = HoodWars?.Call<string>("GetPlayerGangName", player.userID) ?? "";
+                        if (pGang == killerGang)
                         {
-                            player.GiveItem(c4);
-                            player.ChatMessage($"<color=#55ff55>[GANG REWARD]</color> You received {_config.C4RewardCount} C4 for taking out {normalizedVictimGang}'s {matriarchName}!");
-                            Effect.server.Run("assets/prefabs/tools/timed.explosive.charge/effects/impact.prefab", player.transform.position);
-                            killerRewardCount++;
+                            Item c4 = ItemManager.CreateByName(ItemC4, _config.C4RewardCount);
+                            if (c4 != null)
+                            {
+                                player.GiveItem(c4);
+                                player.ChatMessage($"<color=#55ff55>[GANG REWARD]</color> You received {_config.C4RewardCount} C4 for taking out {normalizedVictimGang}'s {matriarchName}!");
+                                Effect.server.Run("assets/prefabs/tools/timed.explosive.charge/effects/impact.prefab", player.transform.position);
+                                killerRewardCount++;
+                            }
                         }
                     }
+                    Puts($"[GRANDMA DEBUG] Killer gang rewards given to {killerRewardCount} players");
                 }
-                Puts($"[GRANDMA DEBUG] Killer gang rewards given to {killerRewardCount} players");
+                else
+                {
+                    Puts($"[GRANDMA DEBUG] No rewards - killer gang is same as victim gang");
+                }
+            }
+            else
+            {
+                Puts($"[GRANDMA DEBUG] No rewards - killer conditions not met: killer={killer != null}, killerGang={killerGang}");
             }
         }
 
@@ -841,11 +860,8 @@ namespace Oxide.Plugins
                 _manualMatriarchs.Add(ent);
                 player.ChatMessage($"<color=#55ff55>[GRANDMA]</color> Spawned Grandma for {gangName} at your location.");
                 
-                // Also create a grandma house zone if spawning for a real gang
-                if (gangName != "TestHood")
-                {
-                    CreateGrandmaHouseZone(gangName, player.transform.position);
-                }
+                // NOTE: Zones are set independently via /gzoneset - spawning grandma does NOT affect zones
+                // This ensures zones persist even when grandmas die and are respawned
             }
             else
             {
@@ -1208,12 +1224,9 @@ namespace Oxide.Plugins
                 _manualMatriarchs.Remove(entity);
             }
             
-            // Remove grandma house zone and sphere when grandma dies
-            if (wasG)
-            {
-                _grandmaHouseZones.Remove(gangOwner);
-                RemoveGrandmaSphere(gangOwner);
-            }
+            // NOTE: Grandma zones and spheres are NOT removed when grandma dies
+            // Zones are set independently via /gzoneset and should persist
+            // They protect the location, not the grandma NPC itself
             
             float penalty = wasG ? _config.Grandma.InfluencePenalty : _config.Mom.InfluencePenalty;
             if (TurfGraffiti != null) TurfGraffiti.Call("ReduceInfluence", gangOwner, penalty);
