@@ -1165,11 +1165,37 @@ namespace Oxide.Plugins
             if (entity == null) return;
             string gangOwner = "";
             bool wasG = false;
+            bool isManualMatriarch = false;
 
+            // Check active matriarchs (auto-spawned at HQ)
             foreach(var kvp in _activeMatriarchs)
             {
                 if (kvp.Value.Grandma == entity) { gangOwner = kvp.Key; wasG = true; break; }
                 if (kvp.Value.Mom == entity) { gangOwner = kvp.Key; wasG = false; break; }
+            }
+            
+            // Also check manual matriarchs (spawned via /spawngrandma or /spawnmom)
+            if (string.IsNullOrEmpty(gangOwner) && _manualMatriarchs.Contains(entity))
+            {
+                isManualMatriarch = true;
+                var npc = entity as BasePlayer;
+                if (npc != null)
+                {
+                    // Parse gang name from display name format: "GangName's Grandma" or "GangName's Mom"
+                    string displayName = npc.displayName ?? "";
+                    wasG = displayName.Contains("Grandma");
+                    
+                    // Extract gang name from the NPC display name
+                    if (displayName.Contains("'s"))
+                    {
+                        gangOwner = displayName.Split(new[] { "'s" }, StringSplitOptions.None)[0];
+                    }
+                    else if (displayName.Contains("Piru")) gangOwner = "Westside Pirus";
+                    else if (displayName.Contains("Vago")) gangOwner = "Northside Vagos";
+                    else if (displayName.Contains("Sureño") || displayName.Contains("Sureno")) gangOwner = "Southside Sureños";
+                    else if (displayName.Contains("Disciple")) gangOwner = "Eastside Disciples";
+                    else gangOwner = "TestHood"; // Fallback for test spawns
+                }
             }
 
             if (string.IsNullOrEmpty(gangOwner)) return;
@@ -1181,6 +1207,12 @@ namespace Oxide.Plugins
             _captors.Remove(entity);
             _surrenderedMatriarchs.Remove(entity);
             
+            // Remove from manual matriarchs if applicable
+            if (isManualMatriarch)
+            {
+                _manualMatriarchs.Remove(entity);
+            }
+            
             // Remove grandma house zone and sphere when grandma dies
             if (wasG)
             {
@@ -1191,7 +1223,11 @@ namespace Oxide.Plugins
             float penalty = wasG ? _config.Grandma.InfluencePenalty : _config.Mom.InfluencePenalty;
             if (TurfGraffiti != null) TurfGraffiti.Call("ReduceInfluence", gangOwner, penalty);
 
-            timer.Once(_config.RespawnTimeSeconds, () => SpawnMatriarchAtHQ(gangOwner, wasG));
+            // Only respawn if it was an active matriarch, not manual
+            if (!isManualMatriarch)
+            {
+                timer.Once(_config.RespawnTimeSeconds, () => SpawnMatriarchAtHQ(gangOwner, wasG));
+            }
         }
         
         // Block building in Grandma House zones (except for gang members if allowed)
