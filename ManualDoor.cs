@@ -21,6 +21,8 @@ namespace Oxide.Plugins
         private const string ArmoredDoubleDoorPrefab = "assets/prefabs/building/door.double.hinged/door.double.hinged.toptier.prefab";
         // Codelock with pilot skin
         private const string CodeLockPrefab = "assets/prefabs/locks/keypad/skins/codelock_a_pilot/lock.code.a.pilot.prefab";
+        // Sphere for zone visualization
+        private const string SpherePrefab = "assets/prefabs/visualization/sphere.prefab";
         
         // Skin ID placeholders for door customization
         private const ulong MetalDoorSkinId = 0; // Placeholder - set to actual skin ID
@@ -32,6 +34,9 @@ namespace Oxide.Plugins
         
         // Default code for grandma zone doors - gang members can always open
         private const string GrandmaZoneDoorCode = "1337";
+        
+        // Default sphere radius for door zones
+        private const float DefaultSphereRadius = 5f;
 
         private const string AdminPermission = "manualdoor.admin";
 
@@ -41,6 +46,9 @@ namespace Oxide.Plugins
 
         private StoredData data;
         private DynamicConfigFile dataFile;
+        
+        // Sphere tracking: doorNetId -> sphereEntity
+        private readonly Dictionary<ulong, SphereEntity> doorSpheres = new Dictionary<ulong, SphereEntity>();
 
         // HoodWars plugin reference for gang integration
         [PluginReference]
@@ -116,6 +124,8 @@ namespace Oxide.Plugins
             public bool IsDoubleDoor; // true for double door, false for single door
             public int DoorType; // 0 = metal, 1 = garage, 2 = armored, 3 = armored double
             public string GrandmaZoneGang; // If set, this door is in a grandma zone
+            public bool HasSphere; // If true, this door has a sphere marker
+            public float SphereRadius; // Radius of the sphere marker
 
             public Vector3 GetPosition() => new Vector3(PosX, PosY, PosZ);
             public Quaternion GetRotation() => new Quaternion(RotX, RotY, RotZ, RotW);
@@ -153,7 +163,9 @@ namespace Oxide.Plugins
                     LockCode = LockCode,
                     IsDoubleDoor = IsDoubleDoor,
                     DoorType = DoorType,
-                    GrandmaZoneGang = GrandmaZoneGang
+                    GrandmaZoneGang = GrandmaZoneGang,
+                    HasSphere = HasSphere,
+                    SphereRadius = SphereRadius
                 };
             }
         }
@@ -229,6 +241,9 @@ namespace Oxide.Plugins
             SaveData();
 
             timer.Every(1f, UpdateAllClaimUIs);
+            
+            // Restore all door spheres
+            RestoreAllDoorSpheres();
         }
 
         private void Unload()
@@ -243,6 +258,15 @@ namespace Oxide.Plugins
                 t?.Destroy();
 
             claimTimers.Clear();
+            
+            // Clean up all spheres
+            foreach (var sphere in doorSpheres.Values)
+            {
+                if (sphere != null && !sphere.IsDestroyed)
+                    sphere.Kill();
+            }
+            doorSpheres.Clear();
+            
             SaveData();
         }
 
@@ -685,6 +709,80 @@ namespace Oxide.Plugins
                 SendReply(player, "<color=#66ff66>Armored double door spawned. Use /dooredit while looking at it to adjust.</color>");
         }
 
+        [ChatCommand("addsphere")]
+        private void CmdAddSphere(BasePlayer player, string cmd, string[] args)
+        {
+            if (!permission.UserHasPermission(player.UserIDString, AdminPermission))
+            {
+                SendReply(player, "<color=#ff6666>Permission denied.</color>");
+                return;
+            }
+
+            if (!Physics.Raycast(player.eyes.HeadRay(), out var hit, 5f))
+            {
+                SendReply(player, "<color=#ffcc00>Look at a ManualDoor to add a sphere.</color>");
+                return;
+            }
+
+            var ent = hit.GetEntity();
+            if (ent is CodeLock)
+                ent = ent.GetParentEntity();
+
+            if (ent == null || ent.net == null || !data.Doors.TryGetValue(ent.net.ID.Value, out var info))
+            {
+                SendReply(player, "<color=#ffcc00>That is not a ManualDoor.</color>");
+                return;
+            }
+
+            float radius = DefaultSphereRadius;
+            if (args.Length > 0)
+            {
+                float.TryParse(args[0], out radius);
+                if (radius <= 0) radius = DefaultSphereRadius;
+            }
+
+            // Create or update sphere
+            CreateDoorSphere(ent.net.ID.Value, info, radius);
+            info.HasSphere = true;
+            info.SphereRadius = radius;
+            SaveData();
+
+            SendReply(player, $"<color=#66ff66>Sphere added to door with radius {radius}. Use /removesphere to remove.</color>");
+        }
+
+        [ChatCommand("removesphere")]
+        private void CmdRemoveSphere(BasePlayer player, string cmd, string[] args)
+        {
+            if (!permission.UserHasPermission(player.UserIDString, AdminPermission))
+            {
+                SendReply(player, "<color=#ff6666>Permission denied.</color>");
+                return;
+            }
+
+            if (!Physics.Raycast(player.eyes.HeadRay(), out var hit, 5f))
+            {
+                SendReply(player, "<color=#ffcc00>Look at a ManualDoor to remove its sphere.</color>");
+                return;
+            }
+
+            var ent = hit.GetEntity();
+            if (ent is CodeLock)
+                ent = ent.GetParentEntity();
+
+            if (ent == null || ent.net == null || !data.Doors.TryGetValue(ent.net.ID.Value, out var info))
+            {
+                SendReply(player, "<color=#ffcc00>That is not a ManualDoor.</color>");
+                return;
+            }
+
+            RemoveDoorSphere(ent.net.ID.Value);
+            info.HasSphere = false;
+            info.SphereRadius = 0;
+            SaveData();
+
+            SendReply(player, "<color=#66ff66>Sphere removed from door.</color>");
+        }
+
         [ChatCommand("removedoor")]
         private void CmdRemoveDoor(BasePlayer player, string cmd, string[] args)
         {
@@ -709,6 +807,9 @@ namespace Oxide.Plugins
                 SendReply(player, "<color=#ffcc00>That is not a ManualDoor.</color>");
                 return;
             }
+            
+            // Remove sphere if it has one
+            RemoveDoorSphere(ent.net.ID.Value);
 
             data.Doors.Remove(ent.net.ID.Value);
             SaveData();
@@ -854,12 +955,24 @@ namespace Oxide.Plugins
 
             var remaining = GetTimeRemaining(info);
             var timeStr = remaining > 0 ? FormatTime((int)remaining) : "Expired / Unclaimed";
+            
+            string doorTypeStr = "Metal";
+            switch (info.DoorType)
+            {
+                case 1: doorTypeStr = "Garage"; break;
+                case 2: doorTypeStr = "Armored"; break;
+                case 3: doorTypeStr = "Armored Double"; break;
+            }
+            if (info.IsDoubleDoor && info.DoorType == 0) doorTypeStr = "Metal Double";
 
             SendReply(player, "<color=#66ccff>=== ManualDoor Info ===</color>");
             SendReply(player, $"<color=#ffffff>ID: {ent.net.ID.Value}</color>");
+            SendReply(player, $"<color=#ffffff>Type: {doorTypeStr}</color>");
             SendReply(player, $"<color=#ffffff>Claimed By: {claimant}</color>");
             SendReply(player, $"<color=#ffffff>Time Remaining: {timeStr}</color>");
             SendReply(player, $"<color=#ffffff>Evicted Players: {info.EvictedPlayers.Count}</color>");
+            SendReply(player, $"<color=#ffffff>Has Sphere: {info.HasSphere} (Radius: {info.SphereRadius})</color>");
+            SendReply(player, $"<color=#ffffff>Grandma Zone: {info.GrandmaZoneGang ?? "None"}</color>");
         }
 
         [ChatCommand("resetdoor")]
@@ -1417,6 +1530,96 @@ namespace Oxide.Plugins
 
         #endregion
 
+        #region Sphere Management
+        
+        private void CreateDoorSphere(ulong doorId, DoorInfo info, float radius)
+        {
+            // Remove existing sphere if any
+            RemoveDoorSphere(doorId);
+            
+            var center = info.GetPosition();
+            center.y += 1f; // Position slightly above door
+            
+            var sphere = GameManager.server.CreateEntity(SpherePrefab, center) as SphereEntity;
+            if (sphere == null) return;
+            
+            // SphereEntity.currentRadius is actually the diameter
+            sphere.currentRadius = radius * 2f;
+            sphere.lerpSpeed = 0f;
+            sphere.Spawn();
+            
+            // Set sphere color (semi-transparent blue)
+            var renderer = sphere.GetComponentInChildren<MeshRenderer>();
+            if (renderer != null)
+            {
+                var material = renderer.material;
+                var color = new Color(0.2f, 0.4f, 0.8f, 0.25f);
+                material.color = color;
+            }
+            
+            doorSpheres[doorId] = sphere;
+        }
+        
+        private void RemoveDoorSphere(ulong doorId)
+        {
+            if (doorSpheres.TryGetValue(doorId, out var sphere))
+            {
+                if (sphere != null && !sphere.IsDestroyed)
+                    sphere.Kill();
+                doorSpheres.Remove(doorId);
+            }
+        }
+        
+        private void RestoreAllDoorSpheres()
+        {
+            foreach (var kvp in data.Doors)
+            {
+                if (kvp.Value.HasSphere && kvp.Value.SphereRadius > 0)
+                {
+                    CreateDoorSphere(kvp.Key, kvp.Value, kvp.Value.SphereRadius);
+                }
+            }
+        }
+        
+        /// <summary>
+        /// Check if a position is within any door sphere zone and return the door info
+        /// </summary>
+        private DoorInfo GetDoorSphereAtPosition(Vector3 position)
+        {
+            foreach (var kvp in data.Doors)
+            {
+                if (kvp.Value.HasSphere && kvp.Value.SphereRadius > 0)
+                {
+                    var doorPos = kvp.Value.GetPosition();
+                    float distance = Vector3.Distance(new Vector3(doorPos.x, position.y, doorPos.z), position);
+                    if (distance <= kvp.Value.SphereRadius)
+                    {
+                        return kvp.Value;
+                    }
+                }
+            }
+            return null;
+        }
+        
+        /// <summary>
+        /// API: Check if a position is within any door sphere zone
+        /// </summary>
+        private bool API_IsInDoorSphere(Vector3 position)
+        {
+            return GetDoorSphereAtPosition(position) != null;
+        }
+        
+        /// <summary>
+        /// API: Get the gang associated with a door sphere at position
+        /// </summary>
+        private string API_GetDoorSphereGang(Vector3 position)
+        {
+            var info = GetDoorSphereAtPosition(position);
+            return info?.GrandmaZoneGang;
+        }
+
+        #endregion
+
         #region Door spawn
         
         // Helper to get prefab by door type
@@ -1512,12 +1715,17 @@ namespace Oxide.Plugins
 
         private BaseEntity SpawnDoorFromInfo(DoorInfo info)
         {
-            var prefab = info.IsDoubleDoor ? DoubleDoorPrefab : DoorPrefab;
+            var prefab = GetDoorPrefabByType(info.DoorType, info.IsDoubleDoor);
             var ent = GameManager.server.CreateEntity(prefab, info.GetPosition(), info.GetRotation());
             if (ent == null)
                 return null;
 
             ent.OwnerID = info.OwnerId;
+            
+            // Apply skin if available
+            ulong skinId = GetDoorSkinByType(info.DoorType, info.IsDoubleDoor);
+            if (skinId != 0)
+                ent.skinID = skinId;
 
             var gw = ent.GetComponent<GroundWatch>();
             if (gw != null) gw.enabled = false;
@@ -1550,12 +1758,17 @@ namespace Oxide.Plugins
 
         private BaseEntity SpawnDoorWithState(Vector3 pos, Quaternion rot, DoorInfo info, CodeLockState state)
         {
-            var prefab = info.IsDoubleDoor ? DoubleDoorPrefab : DoorPrefab;
+            var prefab = GetDoorPrefabByType(info.DoorType, info.IsDoubleDoor);
             var ent = GameManager.server.CreateEntity(prefab, pos, rot);
             if (ent == null)
                 return null;
 
             ent.OwnerID = info.OwnerId;
+            
+            // Apply skin if available
+            ulong skinId = GetDoorSkinByType(info.DoorType, info.IsDoubleDoor);
+            if (skinId != 0)
+                ent.skinID = skinId;
 
             var gw = ent.GetComponent<GroundWatch>();
             if (gw != null) gw.enabled = false;
@@ -1575,6 +1788,11 @@ namespace Oxide.Plugins
                 {
                     lockEnt.SetParent(ent, "lock");
                     lockEnt.OwnerID = info.OwnerId;
+                    
+                    // Apply codelock skin if set
+                    if (CodeLockSkinId != 0)
+                        lockEnt.skinID = CodeLockSkinId;
+                        
                     lockEnt.Spawn();
 
                     var cl = lockEnt as CodeLock;
