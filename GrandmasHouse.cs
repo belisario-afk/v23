@@ -711,28 +711,6 @@ namespace Oxide.Plugins
                 }
                 Puts($"[GRANDMA DEBUG] Killer gang rewards given to {killerRewardCount} players");
             }
-            
-            // Give retaliation loadout to victim's gang
-            PrintToChat($"<color=#ffd700>RETALIATION LOADOUT GRANTED TO ALL {normalizedVictimGang.ToUpper()} MEMBERS.</color>");
-
-            int victimRewardCount = 0;
-            foreach (var player in BasePlayer.activePlayerList)
-            {
-                string pGang = HoodWars?.Call<string>("GetPlayerGangName", player.userID) ?? "Neutral";
-                Puts($"[GRANDMA DEBUG] Checking player {player.displayName}: pGang={pGang}, victimGang={normalizedVictimGang}, match={pGang == normalizedVictimGang}");
-                if (pGang == normalizedVictimGang)
-                {
-                    Item c4 = ItemManager.CreateByName(ItemC4, _config.C4RewardCount);
-                    if (c4 != null)
-                    {
-                        player.GiveItem(c4);
-                        player.ChatMessage($"<color=#ff4444>[GANG LOADOUT]</color> You received {_config.C4RewardCount} C4. Go get your revenge!");
-                        Effect.server.Run("assets/prefabs/tools/timed.explosive.charge/effects/impact.prefab", player.transform.position);
-                        victimRewardCount++;
-                    }
-                }
-            }
-            Puts($"[GRANDMA DEBUG] Victim gang rewards given to {victimRewardCount} players");
         }
 
         #endregion
