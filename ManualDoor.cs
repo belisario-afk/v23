@@ -643,7 +643,7 @@ namespace Oxide.Plugins
                 SendReply(player, "<color=#66ff66>Armored door spawned. Use /dooredit while looking at it to adjust.</color>");
         }
 
-        [ChatCommand("spawnarmoreeddoubledoor")]
+        [ChatCommand("spawnarmoreddoubledoor")]
         private void CmdSpawnArmoredDoubleDoor(BasePlayer player, string cmd, string[] args)
         {
             if (!permission.UserHasPermission(player.UserIDString, AdminPermission))
@@ -1413,7 +1413,7 @@ namespace Oxide.Plugins
 
         private BaseEntity SpawnPermanentDoor(Vector3 pos, Quaternion rot, ulong ownerId, bool isDoubleDoor)
         {
-            return SpawnPermanentDoorByType(pos, rot, ownerId, isDoubleDoor ? 0 : 0, isDoubleDoor);
+            return SpawnPermanentDoorByType(pos, rot, ownerId, 0, isDoubleDoor);
         }
         
         private BaseEntity SpawnPermanentDoorByType(Vector3 pos, Quaternion rot, ulong ownerId, int doorType, bool isDoubleDoor = false)

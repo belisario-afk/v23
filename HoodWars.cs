@@ -1672,7 +1672,7 @@ namespace Oxide.Plugins
                 return;
             }
             
-            player.SendConsoleCommand("chat.say", "/spawnarmoreeddoubledoor");
+            player.SendConsoleCommand("chat.say", "/spawnarmoreddoubledoor");
             SendReply(player, "<color=#55ff55>SUCCESS:</color> Spawning armored double door at your location...");
         }
         
