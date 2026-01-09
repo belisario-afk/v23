@@ -1481,6 +1481,26 @@ namespace Oxide.Plugins
                 case "togglegrandmaspheres":
                     ToggleGrandmaSpheresFromAdmin(player);
                     break;
+                    
+                // Zone setup commands (4 gang zones)
+                case "gzonesetpirus":
+                    SetGrandmaZoneFromAdmin(player, "Pirus");
+                    break;
+                case "gzonesetvagos":
+                    SetGrandmaZoneFromAdmin(player, "Vagos");
+                    break;
+                case "gzonesetsurenos":
+                    SetGrandmaZoneFromAdmin(player, "Surenos");
+                    break;
+                case "gzonesetdisciples":
+                    SetGrandmaZoneFromAdmin(player, "Disciples");
+                    break;
+                case "gzonelist":
+                    ListGrandmaZonesFromAdmin(player);
+                    break;
+                case "gzoneinfo":
+                    ShowGrandmaZoneInfoFromAdmin(player);
+                    break;
             }
         }
 
@@ -1947,6 +1967,36 @@ namespace Oxide.Plugins
                 return;
             }
             player.SendConsoleCommand("chat.say", "/gtoggleSpheres");
+        }
+        
+        private void SetGrandmaZoneFromAdmin(BasePlayer player, string gangShortName)
+        {
+            if (GrandmasHouse == null || !GrandmasHouse.IsLoaded)
+            {
+                SendReply(player, "<color=#ff4444>ERROR:</color> GrandmasHouse plugin is not loaded.");
+                return;
+            }
+            player.SendConsoleCommand("chat.say", $"/gzoneset {gangShortName}");
+        }
+        
+        private void ListGrandmaZonesFromAdmin(BasePlayer player)
+        {
+            if (GrandmasHouse == null || !GrandmasHouse.IsLoaded)
+            {
+                SendReply(player, "<color=#ff4444>ERROR:</color> GrandmasHouse plugin is not loaded.");
+                return;
+            }
+            player.SendConsoleCommand("chat.say", "/gzone list");
+        }
+        
+        private void ShowGrandmaZoneInfoFromAdmin(BasePlayer player)
+        {
+            if (GrandmasHouse == null || !GrandmasHouse.IsLoaded)
+            {
+                SendReply(player, "<color=#ff4444>ERROR:</color> GrandmasHouse plugin is not loaded.");
+                return;
+            }
+            player.SendConsoleCommand("chat.say", "/gzone info");
         }
 
         // Admin command to set the TC they're looking at as the HQ TC for a gang
@@ -2644,7 +2694,62 @@ namespace Oxide.Plugins
 
             y = 0.74f;
 
-            // === Row 1: Grandma Commands ===
+            // === Row 1: Zone Setup (4 gang zones) ===
+            elements.Add(new CuiButton
+            {
+                Button = { Color = grandmaLoaded ? "0.6 0.2 0.2 1" : "0.4 0.4 0.4 1", Command = "hoodwars.admin gzonesetpirus" },
+                RectTransform = { AnchorMin = $"0.02 {y - rowHeight}", AnchorMax = $"0.24 {y}" },
+                Text = { Text = "Set Pirus", FontSize = 8, Align = TextAnchor.MiddleCenter }
+            }, "Content");
+
+            elements.Add(new CuiButton
+            {
+                Button = { Color = grandmaLoaded ? "0.6 0.6 0.2 1" : "0.4 0.4 0.4 1", Command = "hoodwars.admin gzonesetvagos" },
+                RectTransform = { AnchorMin = $"0.26 {y - rowHeight}", AnchorMax = $"0.48 {y}" },
+                Text = { Text = "Set Vagos", FontSize = 8, Align = TextAnchor.MiddleCenter }
+            }, "Content");
+
+            elements.Add(new CuiButton
+            {
+                Button = { Color = grandmaLoaded ? "0.2 0.2 0.6 1" : "0.4 0.4 0.4 1", Command = "hoodwars.admin gzonesetsurenos" },
+                RectTransform = { AnchorMin = $"0.52 {y - rowHeight}", AnchorMax = $"0.74 {y}" },
+                Text = { Text = "Set Sureños", FontSize = 8, Align = TextAnchor.MiddleCenter }
+            }, "Content");
+
+            elements.Add(new CuiButton
+            {
+                Button = { Color = grandmaLoaded ? "0.3 0.3 0.3 1" : "0.4 0.4 0.4 1", Command = "hoodwars.admin gzonesetdisciples" },
+                RectTransform = { AnchorMin = $"0.76 {y - rowHeight}", AnchorMax = $"0.98 {y}" },
+                Text = { Text = "Set Disciples", FontSize = 8, Align = TextAnchor.MiddleCenter }
+            }, "Content");
+
+            y -= rowHeight + spacing;
+
+            // === Row 2: Zone Management ===
+            elements.Add(new CuiButton
+            {
+                Button = { Color = grandmaLoaded ? "0.4 0.5 0.4 1" : "0.4 0.4 0.4 1", Command = "hoodwars.admin gzonelist" },
+                RectTransform = { AnchorMin = $"0.02 {y - rowHeight}", AnchorMax = $"0.32 {y}" },
+                Text = { Text = "List Zones", FontSize = 9, Align = TextAnchor.MiddleCenter }
+            }, "Content");
+
+            elements.Add(new CuiButton
+            {
+                Button = { Color = grandmaLoaded ? "0.3 0.4 0.5 1" : "0.4 0.4 0.4 1", Command = "hoodwars.admin gzoneinfo" },
+                RectTransform = { AnchorMin = $"0.34 {y - rowHeight}", AnchorMax = $"0.64 {y}" },
+                Text = { Text = "Zone Info", FontSize = 9, Align = TextAnchor.MiddleCenter }
+            }, "Content");
+
+            elements.Add(new CuiButton
+            {
+                Button = { Color = grandmaLoaded ? "0.5 0.4 0.3 1" : "0.4 0.4 0.4 1", Command = "hoodwars.admin togglegrandmaspheres" },
+                RectTransform = { AnchorMin = $"0.66 {y - rowHeight}", AnchorMax = $"0.98 {y}" },
+                Text = { Text = "Toggle Spheres", FontSize = 9, Align = TextAnchor.MiddleCenter }
+            }, "Content");
+
+            y -= rowHeight + spacing;
+
+            // === Row 3: Grandma Spawn/Kill ===
             elements.Add(new CuiButton
             {
                 Button = { Color = grandmaLoaded ? "0.5 0.4 0.2 1" : "0.4 0.4 0.4 1", Command = "hoodwars.admin spawngrandma" },
@@ -2668,7 +2773,7 @@ namespace Oxide.Plugins
 
             y -= rowHeight + spacing;
 
-            // === Row 2: Grandma Door Spawning (with auto codelock) ===
+            // === Row 4: Grandma Door Spawning (with auto codelock) ===
             elements.Add(new CuiButton
             {
                 Button = { Color = manualDoorLoaded ? "0.6 0.5 0.2 1" : "0.4 0.4 0.4 1", Command = "hoodwars.admin spawngrandmadoor" },
@@ -2685,7 +2790,7 @@ namespace Oxide.Plugins
 
             y -= rowHeight + spacing;
 
-            // === Row 3: Regular Door Spawning ===
+            // === Row 5: Regular Door Spawning ===
             elements.Add(new CuiButton
             {
                 Button = { Color = manualDoorLoaded ? "0.3 0.5 0.3 1" : "0.4 0.4 0.4 1", Command = "hoodwars.admin spawngaragedoor" },
@@ -2709,7 +2814,7 @@ namespace Oxide.Plugins
 
             y -= rowHeight + spacing;
 
-            // === Row 4: Door Management ===
+            // === Row 6: Door Management ===
             elements.Add(new CuiButton
             {
                 Button = { Color = manualDoorLoaded ? "0.3 0.4 0.6 1" : "0.4 0.4 0.4 1", Command = "hoodwars.admin dooredit" },

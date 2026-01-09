@@ -123,6 +123,30 @@ namespace Oxide.Plugins
             
             [JsonProperty("Grandma Sphere Color (Hex)")]
             public string GrandmaSphereColor { get; set; } = "#FFD700"; // Gold color
+            
+            [JsonProperty("Gang Zone Locations (4 zones, one per gang)")]
+            public Dictionary<string, GangZoneConfig> GangZones { get; set; } = new Dictionary<string, GangZoneConfig>
+            {
+                { "Westside Pirus", new GangZoneConfig { X = 0, Y = 0, Z = 0, Radius = 30f, HexColor = "#FF0000" } },
+                { "Northside Vagos", new GangZoneConfig { X = 0, Y = 0, Z = 0, Radius = 30f, HexColor = "#FFFF00" } },
+                { "Southside Sureños", new GangZoneConfig { X = 0, Y = 0, Z = 0, Radius = 30f, HexColor = "#0000FF" } },
+                { "Eastside Disciples", new GangZoneConfig { X = 0, Y = 0, Z = 0, Radius = 30f, HexColor = "#000000" } }
+            };
+            
+            [JsonProperty("Auto-Register Doors In Zones")]
+            public bool AutoRegisterDoorsInZones { get; set; } = true;
+        }
+        
+        private class GangZoneConfig
+        {
+            public float X { get; set; }
+            public float Y { get; set; }
+            public float Z { get; set; }
+            public float Radius { get; set; } = 30f;
+            public string HexColor { get; set; } = "#FFD700";
+            
+            public Vector3 ToVector3() => new Vector3(X, Y, Z);
+            public bool IsConfigured => X != 0 || Y != 0 || Z != 0;
         }
 
         protected override void LoadDefaultConfig() => _config = new ConfigData();
@@ -153,6 +177,37 @@ namespace Oxide.Plugins
             timer.Every(5f, UpdateMatriarchAuras);
             timer.Every(0.03f, UpdateHostageLogic); 
             timer.Every(_config.FoodGiftIntervalMinutes * 60, DistributeGrandmaMeals);
+            
+            // Initialize grandma zones from config (4 zones, one per gang)
+            InitializeGangZonesFromConfig();
+        }
+        
+        /// <summary>
+        /// Initialize all 4 grandma house zones from config. 
+        /// Zones are independent of grandma NPCs - they define areas where:
+        /// - Doors auto-register to the zone's gang
+        /// - Codelocks are auto-attached and gang members can open
+        /// - Building is restricted
+        /// </summary>
+        private void InitializeGangZonesFromConfig()
+        {
+            if (_config.GangZones == null) return;
+            
+            foreach (var kvp in _config.GangZones)
+            {
+                string gangName = kvp.Key;
+                var zoneConfig = kvp.Value;
+                
+                if (!zoneConfig.IsConfigured)
+                {
+                    Puts($"[GrandmasHouse] Zone for {gangName} not configured (position 0,0,0). Use /gzoneset {gangName} to set.");
+                    continue;
+                }
+                
+                CreateGrandmaHouseZoneFromConfig(gangName, zoneConfig);
+            }
+            
+            Puts($"[GrandmasHouse] Initialized {_grandmaHouseZones.Count} grandma house zones.");
         }
 
         private void Unload()
@@ -219,11 +274,39 @@ namespace Oxide.Plugins
             // Create sphere visualization like HQ spheres
             if (_config.ShowGrandmaSpheres)
             {
-                CreateGrandmaSphere(gangName, center);
+                CreateGrandmaSphere(gangName, center, _config.GrandmaSphereColor);
             }
         }
         
-        private void CreateGrandmaSphere(string gangName, Vector3 center)
+        /// <summary>
+        /// Create a grandma house zone from config (with custom radius and color per gang)
+        /// </summary>
+        private void CreateGrandmaHouseZoneFromConfig(string gangName, GangZoneConfig zoneConfig)
+        {
+            Vector3 center = zoneConfig.ToVector3();
+            
+            _grandmaHouseZones[gangName] = new GrandmaHouseZone
+            {
+                GangName = gangName,
+                Center = center,
+                Radius = zoneConfig.Radius,
+                ManagedDoors = new List<ulong>()
+            };
+            Puts($"[GrandmasHouse] Created Grandma House zone for {gangName} at {center} with radius {zoneConfig.Radius}");
+            
+            // Create sphere visualization with gang-specific color
+            if (_config.ShowGrandmaSpheres)
+            {
+                CreateGrandmaSphereWithColor(gangName, center, zoneConfig.Radius, zoneConfig.HexColor);
+            }
+        }
+        
+        private void CreateGrandmaSphere(string gangName, Vector3 center, string hexColor = null)
+        {
+            CreateGrandmaSphereWithColor(gangName, center, _config.GrandmaHouseRadius, hexColor ?? _config.GrandmaSphereColor);
+        }
+        
+        private void CreateGrandmaSphereWithColor(string gangName, Vector3 center, float radius, string hexColor)
         {
             // Remove existing sphere if any
             RemoveGrandmaSphere(gangName);
@@ -236,14 +319,14 @@ namespace Oxide.Plugins
             if (sphere == null) return;
             
             // SphereEntity.currentRadius is actually the diameter
-            sphere.currentRadius = _config.GrandmaHouseRadius * 2f;
+            sphere.currentRadius = radius * 2f;
             sphere.lerpSpeed = 0f;
             
             sphere.Spawn();
             
-            // Set sphere color
+            // Set sphere color from config
             Color sphereColor;
-            if (!ColorUtility.TryParseHtmlString(_config.GrandmaSphereColor, out sphereColor))
+            if (!ColorUtility.TryParseHtmlString(hexColor, out sphereColor))
             {
                 sphereColor = Color.yellow;
             }
@@ -259,7 +342,7 @@ namespace Oxide.Plugins
             }
             
             _grandmaSphereMarkers[gangName] = sphere;
-            Puts($"[GrandmasHouse] Created sphere marker for {gangName} at {sphereCenter}");
+            Puts($"[GrandmasHouse] Created sphere marker for {gangName} at {sphereCenter} (color: {hexColor})");
         }
         
         private void RemoveGrandmaSphere(string gangName)
@@ -740,16 +823,78 @@ namespace Oxide.Plugins
         private void CmdGZone(BasePlayer player, string command, string[] args)
         {
             if (!player.IsAdmin && !permission.UserHasPermission(player.UserIDString, PermAdmin)) return;
-            if (args.Length < 2) { player.ChatMessage("Usage: /gzone create <gang_name> [radius]"); return; }
+            if (args.Length < 1) { player.ChatMessage("Usage: /gzone <create|remove|list|set|info> [gang_name] [radius]"); return; }
             
             string action = args[0].ToLower();
-            string gangName = args[1];
             
-            if (action == "create")
+            if (action == "list")
+            {
+                player.ChatMessage("<color=#66ccff>=== Grandma Zones (4 Gang Zones) ===</color>");
+                foreach (var gang in new[] { "Westside Pirus", "Northside Vagos", "Southside Sureños", "Eastside Disciples" })
+                {
+                    if (_grandmaHouseZones.TryGetValue(gang, out var zone))
+                    {
+                        player.ChatMessage($"<color=#55ff55>✓</color> {gang} at ({zone.Center.x:F0}, {zone.Center.y:F0}, {zone.Center.z:F0}) r={zone.Radius} [{zone.ManagedDoors.Count} doors]");
+                    }
+                    else if (_config.GangZones.TryGetValue(gang, out var config) && config.IsConfigured)
+                    {
+                        player.ChatMessage($"<color=#ffaa00>⚠</color> {gang} configured but not active at ({config.X:F0}, {config.Y:F0}, {config.Z:F0})");
+                    }
+                    else
+                    {
+                        player.ChatMessage($"<color=#ff4444>✗</color> {gang} - NOT CONFIGURED. Use /gzoneset {gang}");
+                    }
+                }
+                return;
+            }
+            
+            if (action == "info")
+            {
+                // Show which zone the player is in
+                string zoneGang = GetZoneGangAtPosition(player.transform.position);
+                if (zoneGang != null)
+                {
+                    var zone = _grandmaHouseZones[zoneGang];
+                    player.ChatMessage($"<color=#55ff55>[GRANDMA'S HOUSE]</color> You are in {zoneGang}'s zone.\n" +
+                        $"Center: ({zone.Center.x:F0}, {zone.Center.y:F0}, {zone.Center.z:F0})\n" +
+                        $"Radius: {zone.Radius}m\n" +
+                        $"Doors: {zone.ManagedDoors.Count}");
+                }
+                else
+                {
+                    player.ChatMessage("<color=#ffaa00>[GRANDMA'S HOUSE]</color> You are NOT in any grandma zone.");
+                }
+                return;
+            }
+            
+            if (args.Length < 2)
+            {
+                player.ChatMessage("Usage: /gzone <create|remove|set> <gang_name> [radius]");
+                return;
+            }
+            
+            string gangName = args[1];
+            // Support partial gang names
+            gangName = ResolveGangName(gangName);
+            
+            if (action == "create" || action == "set")
             {
                 float radius = args.Length > 2 && float.TryParse(args[2], out float r) ? r : _config.GrandmaHouseRadius;
-                CreateGrandmaHouseZone(gangName, player.transform.position);
-                player.ChatMessage($"<color=#55ff55>[GRANDMA'S HOUSE]</color> Created zone for {gangName} at your position with radius {radius}.");
+                
+                // Update config
+                if (!_config.GangZones.ContainsKey(gangName))
+                {
+                    _config.GangZones[gangName] = new GangZoneConfig();
+                }
+                _config.GangZones[gangName].X = player.transform.position.x;
+                _config.GangZones[gangName].Y = player.transform.position.y;
+                _config.GangZones[gangName].Z = player.transform.position.z;
+                _config.GangZones[gangName].Radius = radius;
+                SaveConfig();
+                
+                // Create zone
+                CreateGrandmaHouseZoneFromConfig(gangName, _config.GangZones[gangName]);
+                player.ChatMessage($"<color=#55ff55>[GRANDMA'S HOUSE]</color> Set zone for {gangName} at your position with radius {radius}. Config saved!");
             }
             else if (action == "remove")
             {
@@ -757,21 +902,70 @@ namespace Oxide.Plugins
                 {
                     _grandmaHouseZones.Remove(gangName);
                     RemoveGrandmaSphere(gangName);
-                    player.ChatMessage($"<color=#55ff55>[GRANDMA'S HOUSE]</color> Removed zone for {gangName}.");
+                    
+                    // Clear config position
+                    if (_config.GangZones.ContainsKey(gangName))
+                    {
+                        _config.GangZones[gangName].X = 0;
+                        _config.GangZones[gangName].Y = 0;
+                        _config.GangZones[gangName].Z = 0;
+                        SaveConfig();
+                    }
+                    
+                    player.ChatMessage($"<color=#55ff55>[GRANDMA'S HOUSE]</color> Removed zone for {gangName}. Config cleared.");
                 }
                 else
                 {
                     player.ChatMessage($"<color=#ff4444>[ERROR]</color> No zone found for {gangName}.");
                 }
             }
-            else if (action == "list")
-            {
-                player.ChatMessage("<color=#66ccff>=== Grandma Zones ===</color>");
-                foreach (var zone in _grandmaHouseZones.Values)
-                {
-                    player.ChatMessage($"• {zone.GangName} at ({zone.Center.x:F0}, {zone.Center.y:F0}, {zone.Center.z:F0}) r={zone.Radius}");
-                }
+        }
+        
+        /// <summary>
+        /// Shortcut command to set zone at current position
+        /// </summary>
+        [ChatCommand("gzoneset")]
+        private void CmdGZoneSet(BasePlayer player, string command, string[] args)
+        {
+            if (!player.IsAdmin && !permission.UserHasPermission(player.UserIDString, PermAdmin)) return;
+            if (args.Length < 1) 
+            { 
+                player.ChatMessage("Usage: /gzoneset <gang_name> [radius]\n" +
+                    "Gang names: Pirus, Vagos, Surenos, Disciples\n" +
+                    "Example: /gzoneset Pirus 30"); 
+                return; 
             }
+            
+            string gangName = ResolveGangName(args[0]);
+            float radius = args.Length > 1 && float.TryParse(args[1], out float r) ? r : _config.GrandmaHouseRadius;
+            
+            // Update config
+            if (!_config.GangZones.ContainsKey(gangName))
+            {
+                _config.GangZones[gangName] = new GangZoneConfig();
+            }
+            _config.GangZones[gangName].X = player.transform.position.x;
+            _config.GangZones[gangName].Y = player.transform.position.y;
+            _config.GangZones[gangName].Z = player.transform.position.z;
+            _config.GangZones[gangName].Radius = radius;
+            SaveConfig();
+            
+            // Create zone
+            CreateGrandmaHouseZoneFromConfig(gangName, _config.GangZones[gangName]);
+            player.ChatMessage($"<color=#55ff55>[GRANDMA'S HOUSE]</color> Zone set for {gangName} at your position (r={radius})!");
+        }
+        
+        /// <summary>
+        /// Resolve partial gang names to full names
+        /// </summary>
+        private string ResolveGangName(string input)
+        {
+            input = input.ToLower();
+            if (input.Contains("piru") || input.Contains("west")) return "Westside Pirus";
+            if (input.Contains("vago") || input.Contains("north")) return "Northside Vagos";
+            if (input.Contains("sure") || input.Contains("south")) return "Southside Sureños";
+            if (input.Contains("disc") || input.Contains("east")) return "Eastside Disciples";
+            return input; // Return as-is if no match
         }
         
         [ChatCommand("gtoggleSpheres")]
@@ -786,7 +980,9 @@ namespace Oxide.Plugins
             {
                 foreach (var zone in _grandmaHouseZones)
                 {
-                    CreateGrandmaSphere(zone.Key, zone.Value.Center);
+                    var zoneConfig = _config.GangZones.ContainsKey(zone.Key) ? _config.GangZones[zone.Key] : null;
+                    string color = zoneConfig?.HexColor ?? _config.GrandmaSphereColor;
+                    CreateGrandmaSphereWithColor(zone.Key, zone.Value.Center, zone.Value.Radius, color);
                 }
                 player.ChatMessage("<color=#55ff55>[GRANDMA'S HOUSE]</color> Sphere markers are now VISIBLE.");
             }
@@ -948,6 +1144,15 @@ namespace Oxide.Plugins
                 }
             }
             return null;
+        }
+        
+        /// <summary>
+        /// Get the gang name for a zone at a position (helper method)
+        /// </summary>
+        private string GetZoneGangAtPosition(Vector3 position)
+        {
+            var zone = GetGrandmaZoneAtPosition(position);
+            return zone?.GangName;
         }
         
         // API: Check if a position is in any grandma house zone
