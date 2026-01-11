@@ -9,8 +9,8 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("ManualDoor", "Gemini", "3.9.0")]
-    [Description("Spawns permanent, non-decaying doors with claim timers, eviction, and admin move/rotate GUI. Includes placement mode for fast door setup. Integrates with HoodWars for gang-based hotel rooms and GrandmasHouse for gang-locked doors.")]
+    [Info("ManualDoor", "Gemini", "3.10.0")]
+    [Description("Spawns permanent, non-decaying doors with claim timers, eviction, and admin move/rotate GUI. Includes placement mode with rotation (R key) for fast door setup. Integrates with HoodWars for gang-based hotel rooms and GrandmasHouse for gang-locked doors.")]
     public class ManualDoor : RustPlugin
     {
         private const string DoorPrefab = "assets/prefabs/building/door.hinged/door.hinged.metal.prefab";
@@ -87,6 +87,7 @@ namespace Oxide.Plugins
             public int DoorType; // 0 = metal, 1 = garage, 2 = armored, 3 = armored double, 4 = double metal
             public string GrandmaZoneGang; // If set, will create grandma door with codelock
             public bool IsPlacing;
+            public float Rotation; // Current rotation angle (0, 90, 180, 270)
         }
 
         #region Data classes
@@ -649,7 +650,13 @@ namespace Oxide.Plugins
                 SendReply(player, "<color=#ffcc00>Placement mode cancelled.</color>");
             }
             
-            // R key = rotate preview (not implemented yet - doors auto-rotate to player direction)
+            // R key = rotate 90 degrees
+            if (input.WasJustPressed(BUTTON.RELOAD))
+            {
+                placeInfo.Rotation = (placeInfo.Rotation + 90f) % 360f;
+                ShowPlacementUI(player, placeInfo.DoorType, placeInfo.GrandmaZoneGang, placeInfo.Rotation);
+                SendReply(player, $"<color=#66ccff>Rotation: {placeInfo.Rotation}°</color>");
+            }
         }
 
         #endregion
@@ -670,10 +677,11 @@ namespace Oxide.Plugins
             {
                 DoorType = doorType,
                 GrandmaZoneGang = grandmaZoneGang,
-                IsPlacing = true
+                IsPlacing = true,
+                Rotation = 0f
             };
             
-            ShowPlacementUI(player, doorType, grandmaZoneGang);
+            ShowPlacementUI(player, doorType, grandmaZoneGang, 0f);
         }
 
         /// <summary>
@@ -708,7 +716,8 @@ namespace Oxide.Plugins
                 return;
             }
             
-            var rot = Quaternion.Euler(0f, player.viewAngles.y + 180f, 0f);
+            // Use stored rotation instead of player direction
+            var rot = Quaternion.Euler(0f, placeInfo.Rotation, 0f);
             BaseEntity door;
             
             // If grandma zone gang is set, spawn with codelock
@@ -716,13 +725,13 @@ namespace Oxide.Plugins
             {
                 door = SpawnGrandmaDoorWithCodeLock(hit.point, rot, player.userID, placeInfo.DoorType, placeInfo.GrandmaZoneGang);
                 if (door != null)
-                    SendReply(player, $"<color=#66ff66>Grandma {GetDoorTypeName(placeInfo.DoorType)} placed for {placeInfo.GrandmaZoneGang}. Keep clicking to place more, right-click to stop.</color>");
+                    SendReply(player, $"<color=#66ff66>Grandma {GetDoorTypeName(placeInfo.DoorType)} placed for {placeInfo.GrandmaZoneGang}. Keep clicking to place more, R=rotate, right-click to stop.</color>");
             }
             else
             {
                 door = SpawnPermanentDoorByType(hit.point, rot, player.userID, placeInfo.DoorType);
                 if (door != null)
-                    SendReply(player, $"<color=#66ff66>{GetDoorTypeName(placeInfo.DoorType)} placed. Keep clicking to place more, right-click to stop.</color>");
+                    SendReply(player, $"<color=#66ff66>{GetDoorTypeName(placeInfo.DoorType)} placed. Keep clicking to place more, R=rotate, right-click to stop.</color>");
             }
         }
 
@@ -745,7 +754,7 @@ namespace Oxide.Plugins
         /// <summary>
         /// Show placement mode UI
         /// </summary>
-        private void ShowPlacementUI(BasePlayer player, int doorType, string gangName)
+        private void ShowPlacementUI(BasePlayer player, int doorType, string gangName, float rotation = 0f)
         {
             if (player == null) return;
             
@@ -754,8 +763,8 @@ namespace Oxide.Plugins
             var elements = new CuiElementContainer();
             var panel = elements.Add(new CuiPanel
             {
-                Image = { Color = "0.1 0.1 0.1 0.85" },
-                RectTransform = { AnchorMin = "0.4 0.9", AnchorMax = "0.6 0.96" },
+                Image = { Color = "0.1 0.2 0.3 0.9" }, // Blue-ish tint for building mode feel
+                RectTransform = { AnchorMin = "0.35 0.88", AnchorMax = "0.65 0.98" },
                 CursorEnabled = false
             }, "Overlay", "ManualDoor_PlacementUI");
             
@@ -764,14 +773,21 @@ namespace Oxide.Plugins
             
             elements.Add(new CuiLabel
             {
-                Text = { Text = $"PLACING: {doorName}{gangText}", FontSize = 14, Align = TextAnchor.MiddleCenter, Color = "0.5 1 0.5 1" },
-                RectTransform = { AnchorMin = "0 0.5", AnchorMax = "1 1" }
+                Text = { Text = $"PLACING: {doorName}{gangText}", FontSize = 14, Align = TextAnchor.MiddleCenter, Color = "0.4 0.8 1 1" }, // Cyan/blue color
+                RectTransform = { AnchorMin = "0 0.65", AnchorMax = "1 1" }
+            }, panel);
+            
+            // Show rotation
+            elements.Add(new CuiLabel
+            {
+                Text = { Text = $"Rotation: {rotation}°", FontSize = 12, Align = TextAnchor.MiddleCenter, Color = "1 1 0.5 1" }, // Yellow for rotation
+                RectTransform = { AnchorMin = "0 0.35", AnchorMax = "1 0.65" }
             }, panel);
             
             elements.Add(new CuiLabel
             {
-                Text = { Text = "Left-Click: Place | Right-Click: Cancel", FontSize = 10, Align = TextAnchor.MiddleCenter, Color = "0.8 0.8 0.8 1" },
-                RectTransform = { AnchorMin = "0 0", AnchorMax = "1 0.5" }
+                Text = { Text = "LClick: Place | R: Rotate | RClick: Cancel", FontSize = 10, Align = TextAnchor.MiddleCenter, Color = "0.8 0.8 0.8 1" },
+                RectTransform = { AnchorMin = "0 0", AnchorMax = "1 0.35" }
             }, panel);
             
             CuiHelper.AddUi(player, elements);

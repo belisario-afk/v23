@@ -128,8 +128,9 @@ You can use these shortcuts instead of full gang names:
 
 **While in placement mode:**
 - **Left-click** = Place door at crosshair location
+- **R key** = Rotate door 90° (0°, 90°, 180°, 270°)
 - **Right-click** = Cancel placement mode
-- Door rotates to face the direction you're looking
+- UI shows current rotation angle and door type
 
 ### Chat Commands - Door Management
 
