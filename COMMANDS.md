@@ -120,11 +120,17 @@ You can use these shortcuts instead of full gang names:
 |---------|-------|-------------|------------|
 | `/savelayout <name>` | `/savelayout hotel1` | Save current doors as a layout | Admin |
 | `/listlayouts` | `/listlayouts` | Show all saved layouts | Admin |
-| `/spawnlayout <name>` | `/spawnlayout hotel1` | Spawn a saved layout | Admin |
+| `/spawnlayout <name>` | `/spawnlayout hotel1` | Spawn at EXACT saved world positions | Admin |
+| `/spawnlayoutoffset <name>` | `/spawnlayoutoffset hotel1` | Spawn relative to where you look | Admin |
 | `/deletelayout <name>` | `/deletelayout hotel1` | Delete a saved layout | Admin |
 | `/savegrandmalayout <name> <gang>` | `/savegrandmalayout grandma1 Pirus` | Save grandma doors for specific gang | Admin |
 | `/saveallgrandmalayouts <name>` | `/saveallgrandmalayouts allgrandmas` | Save all grandma doors from all gangs | Admin |
-| `/movedoors` | `/movedoors` | Start door movement mode | Admin |
+| `/movedoors <x> <y> <z>` | `/movedoors 0 1 0` | Move ALL doors by an offset | Admin |
+
+#### Layout Tips
+- **`/spawnlayout`** - Use this when your saved layout needs to be at the exact same map coordinates (same map/wipe)
+- **`/spawnlayoutoffset`** - Use this when moving layouts to a new location (different map or new position)
+- **RustEdit Alternative**: Doors placed in RustEdit will take damage in-game and work normally
 
 ### Console Commands - Door Edit Mode
 

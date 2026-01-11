@@ -9,8 +9,8 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("ManualDoor", "Gemini", "3.7.0")]
-    [Description("Spawns permanent, non-decaying doors with claim timers, eviction, and admin move/rotate GUI. Integrates with HoodWars for gang-based hotel rooms.")]
+    [Info("ManualDoor", "Gemini", "3.8.0")]
+    [Description("Spawns permanent, non-decaying doors with claim timers, eviction, and admin move/rotate GUI. Integrates with HoodWars for gang-based hotel rooms and GrandmasHouse for gang-locked doors.")]
     public class ManualDoor : RustPlugin
     {
         private const string DoorPrefab = "assets/prefabs/building/door.hinged/door.hinged.metal.prefab";
@@ -1306,8 +1306,9 @@ namespace Oxide.Plugins
         }
 
         /// <summary>
-        /// Spawn doors from a saved layout at a new position.
+        /// Spawn doors from a saved layout at EXACT saved world positions.
         /// Usage: /spawnlayout <name>
+        /// NOTE: This spawns doors at their original saved world coordinates!
         /// </summary>
         [ChatCommand("spawnlayout")]
         private void CmdSpawnLayout(BasePlayer player, string cmd, string[] args)
@@ -1320,7 +1321,59 @@ namespace Oxide.Plugins
 
             if (args.Length < 1)
             {
-                SendReply(player, "<color=#ffcc00>Usage: /spawnlayout <name></color>");
+                SendReply(player, "<color=#ffcc00>Usage: /spawnlayout <name></color>\n" +
+                    "This spawns doors at their EXACT saved world positions.\n" +
+                    "Use /spawnlayoutoffset <name> to spawn relative to where you're looking.");
+                return;
+            }
+
+            string layoutName = args[0].ToLower();
+
+            if (data.SavedLayouts == null || !data.SavedLayouts.TryGetValue(layoutName, out var layout))
+            {
+                SendReply(player, $"<color=#ff6666>Layout '{layoutName}' not found.</color>");
+                return;
+            }
+
+            int spawned = 0;
+
+            foreach (var entry in layout.Entries)
+            {
+                // Use EXACT saved world coordinates (offsets + saved origin = original world position)
+                var pos = new Vector3(
+                    layout.SavedOriginX + entry.OffsetX,
+                    layout.SavedOriginY + entry.OffsetY,
+                    layout.SavedOriginZ + entry.OffsetZ
+                );
+                var rot = new Quaternion(entry.RotX, entry.RotY, entry.RotZ, entry.RotW);
+
+                // Spawn door with proper type
+                BaseEntity door = SpawnLayoutDoor(pos, rot, player.userID, entry);
+                
+                if (door != null)
+                    spawned++;
+            }
+
+            SendReply(player, $"<color=#66ff66>Spawned {spawned}/{layout.Entries.Count} doors from layout '{layoutName}' at original positions.</color>");
+        }
+        
+        /// <summary>
+        /// Spawn doors from a saved layout with offset from raycast point.
+        /// Usage: /spawnlayoutoffset <name>
+        /// </summary>
+        [ChatCommand("spawnlayoutoffset")]
+        private void CmdSpawnLayoutOffset(BasePlayer player, string cmd, string[] args)
+        {
+            if (!permission.UserHasPermission(player.UserIDString, AdminPermission))
+            {
+                SendReply(player, "<color=#ff6666>Permission denied.</color>");
+                return;
+            }
+
+            if (args.Length < 1)
+            {
+                SendReply(player, "<color=#ffcc00>Usage: /spawnlayoutoffset <name></color>\n" +
+                    "Look at the ground where you want the center of the layout.");
                 return;
             }
 
@@ -1350,39 +1403,59 @@ namespace Oxide.Plugins
                 );
                 var rot = new Quaternion(entry.RotX, entry.RotY, entry.RotZ, entry.RotW);
 
-                // Spawn door with proper type (uses DoorType from layout)
-                BaseEntity door = null;
-                if (entry.DoorType > 0 || !string.IsNullOrEmpty(entry.GrandmaZoneGang))
-                {
-                    // Use SpawnPermanentDoorByType for grandma/armored doors
-                    door = SpawnPermanentDoorByType(pos, rot, player.userID, entry.DoorType, entry.IsDoubleDoor);
-                    
-                    // Restore grandma zone and sphere settings
-                    if (door != null && data.Doors.TryGetValue(door.net.ID.Value, out var info))
-                    {
-                        if (!string.IsNullOrEmpty(entry.GrandmaZoneGang))
-                        {
-                            info.GrandmaZoneGang = entry.GrandmaZoneGang;
-                        }
-                        if (entry.HasSphere && entry.SphereRadius > 0)
-                        {
-                            info.HasSphere = true;
-                            info.SphereRadius = entry.SphereRadius;
-                            CreateDoorSphere(door.net.ID.Value, info, entry.SphereRadius);
-                        }
-                        SaveData();
-                    }
-                }
-                else
-                {
-                    door = SpawnPermanentDoor(pos, rot, player.userID, entry.IsDoubleDoor);
-                }
+                // Spawn door with proper type
+                BaseEntity door = SpawnLayoutDoor(pos, rot, player.userID, entry);
                 
                 if (door != null)
                     spawned++;
             }
 
             SendReply(player, $"<color=#66ff66>Spawned {spawned}/{layout.Entries.Count} doors from layout '{layoutName}' at ({newOrigin.x:F1}, {newOrigin.y:F1}, {newOrigin.z:F1})</color>");
+        }
+        
+        /// <summary>
+        /// Helper to spawn a door from a layout entry
+        /// </summary>
+        private BaseEntity SpawnLayoutDoor(Vector3 pos, Quaternion rot, ulong ownerId, DoorLayoutEntry entry)
+        {
+            BaseEntity door = null;
+            
+            if (!string.IsNullOrEmpty(entry.GrandmaZoneGang))
+            {
+                // Grandma door with codelock
+                if (entry.IsDoubleDoor)
+                    door = SpawnGrandmaDoubleDoorWithCodeLock(pos, rot, ownerId, entry.DoorType, entry.GrandmaZoneGang);
+                else
+                    door = SpawnGrandmaDoorWithCodeLock(pos, rot, ownerId, entry.DoorType, entry.GrandmaZoneGang);
+            }
+            else if (entry.DoorType > 0)
+            {
+                // Non-grandma door by type
+                door = SpawnPermanentDoorByType(pos, rot, ownerId, entry.DoorType, entry.IsDoubleDoor);
+            }
+            else
+            {
+                // Regular metal door
+                door = SpawnPermanentDoor(pos, rot, ownerId, entry.IsDoubleDoor);
+            }
+            
+            // Restore grandma zone and sphere settings
+            if (door != null && data.Doors.TryGetValue(door.net.ID.Value, out var info))
+            {
+                if (!string.IsNullOrEmpty(entry.GrandmaZoneGang))
+                {
+                    info.GrandmaZoneGang = entry.GrandmaZoneGang;
+                }
+                if (entry.HasSphere && entry.SphereRadius > 0)
+                {
+                    info.HasSphere = true;
+                    info.SphereRadius = entry.SphereRadius;
+                    CreateDoorSphere(door.net.ID.Value, info, entry.SphereRadius);
+                }
+                SaveData();
+            }
+            
+            return door;
         }
 
         /// <summary>
