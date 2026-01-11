@@ -9,8 +9,8 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("ManualDoor", "Gemini", "3.8.0")]
-    [Description("Spawns permanent, non-decaying doors with claim timers, eviction, and admin move/rotate GUI. Integrates with HoodWars for gang-based hotel rooms and GrandmasHouse for gang-locked doors.")]
+    [Info("ManualDoor", "Gemini", "3.9.0")]
+    [Description("Spawns permanent, non-decaying doors with claim timers, eviction, and admin move/rotate GUI. Includes placement mode for fast door setup. Integrates with HoodWars for gang-based hotel rooms and GrandmasHouse for gang-locked doors.")]
     public class ManualDoor : RustPlugin
     {
         private const string DoorPrefab = "assets/prefabs/building/door.hinged/door.hinged.metal.prefab";
@@ -75,6 +75,19 @@ namespace Oxide.Plugins
 
         // doorNetId that we intentionally kill during move/rotate
         private readonly HashSet<ulong> intendedKills = new HashSet<ulong>();
+
+        // Placement mode tracking: playerId -> PlacementInfo
+        private readonly Dictionary<ulong, PlacementInfo> placementMode = new Dictionary<ulong, PlacementInfo>();
+        
+        // Preview door entities: playerId -> preview door
+        private readonly Dictionary<ulong, BaseEntity> previewDoors = new Dictionary<ulong, BaseEntity>();
+
+        private class PlacementInfo
+        {
+            public int DoorType; // 0 = metal, 1 = garage, 2 = armored, 3 = armored double, 4 = double metal
+            public string GrandmaZoneGang; // If set, will create grandma door with codelock
+            public bool IsPlacing;
+        }
 
         #region Data classes
 
@@ -256,6 +269,8 @@ namespace Oxide.Plugins
             {
                 DestroyClaimUI(player);
                 DestroyAdminUI(player);
+                DestroyPlacementUI(player);
+                ExitPlacementMode(player);
             }
 
             foreach (var t in claimTimers.Values)
@@ -271,6 +286,15 @@ namespace Oxide.Plugins
             }
             doorSpheres.Clear();
             
+            // Clean up preview doors
+            foreach (var preview in previewDoors.Values)
+            {
+                if (preview != null && !preview.IsDestroyed)
+                    preview.Kill();
+            }
+            previewDoors.Clear();
+            placementMode.Clear();
+            
             SaveData();
         }
 
@@ -278,6 +302,8 @@ namespace Oxide.Plugins
         {
             DestroyClaimUI(player);
             DestroyAdminUI(player);
+            DestroyPlacementUI(player);
+            ExitPlacementMode(player);
 
             editingDoor.Remove(player.userID);
             moveStep.Remove(player.userID);
@@ -597,6 +623,167 @@ namespace Oxide.Plugins
             }
 
             return true;
+        }
+
+        /// <summary>
+        /// Handle player input for placement mode - place door on left click
+        /// </summary>
+        private void OnPlayerInput(BasePlayer player, InputState input)
+        {
+            if (player == null || input == null) return;
+            
+            // Check if player is in placement mode
+            if (!placementMode.TryGetValue(player.userID, out var placeInfo) || !placeInfo.IsPlacing)
+                return;
+            
+            // Left mouse button pressed = place door
+            if (input.WasJustPressed(BUTTON.FIRE_PRIMARY))
+            {
+                PlaceDoorAtLook(player, placeInfo);
+            }
+            
+            // Right mouse button = cancel placement mode
+            if (input.WasJustPressed(BUTTON.FIRE_SECONDARY))
+            {
+                ExitPlacementMode(player);
+                SendReply(player, "<color=#ffcc00>Placement mode cancelled.</color>");
+            }
+            
+            // R key = rotate preview (not implemented yet - doors auto-rotate to player direction)
+        }
+
+        #endregion
+
+        #region Placement Mode
+
+        /// <summary>
+        /// Enter placement mode for quick door placement
+        /// </summary>
+        private void EnterPlacementMode(BasePlayer player, int doorType, string grandmaZoneGang = null)
+        {
+            if (player == null) return;
+            
+            // Exit any existing placement mode first
+            ExitPlacementMode(player);
+            
+            placementMode[player.userID] = new PlacementInfo
+            {
+                DoorType = doorType,
+                GrandmaZoneGang = grandmaZoneGang,
+                IsPlacing = true
+            };
+            
+            ShowPlacementUI(player, doorType, grandmaZoneGang);
+        }
+
+        /// <summary>
+        /// Exit placement mode and clean up
+        /// </summary>
+        private void ExitPlacementMode(BasePlayer player)
+        {
+            if (player == null) return;
+            
+            placementMode.Remove(player.userID);
+            DestroyPlacementUI(player);
+            
+            // Destroy any preview door
+            if (previewDoors.TryGetValue(player.userID, out var preview))
+            {
+                if (preview != null && !preview.IsDestroyed)
+                    preview.Kill();
+                previewDoors.Remove(player.userID);
+            }
+        }
+
+        /// <summary>
+        /// Place a door where the player is looking
+        /// </summary>
+        private void PlaceDoorAtLook(BasePlayer player, PlacementInfo placeInfo)
+        {
+            if (player == null || placeInfo == null) return;
+            
+            if (!Physics.Raycast(player.eyes.HeadRay(), out var hit, 10f))
+            {
+                SendReply(player, "<color=#ffcc00>Look at a surface to place the door.</color>");
+                return;
+            }
+            
+            var rot = Quaternion.Euler(0f, player.viewAngles.y + 180f, 0f);
+            BaseEntity door;
+            
+            // If grandma zone gang is set, spawn with codelock
+            if (!string.IsNullOrEmpty(placeInfo.GrandmaZoneGang))
+            {
+                door = SpawnGrandmaDoorWithCodeLock(hit.point, rot, player.userID, placeInfo.DoorType, placeInfo.GrandmaZoneGang);
+                if (door != null)
+                    SendReply(player, $"<color=#66ff66>Grandma {GetDoorTypeName(placeInfo.DoorType)} placed for {placeInfo.GrandmaZoneGang}. Keep clicking to place more, right-click to stop.</color>");
+            }
+            else
+            {
+                door = SpawnPermanentDoorByType(hit.point, rot, player.userID, placeInfo.DoorType);
+                if (door != null)
+                    SendReply(player, $"<color=#66ff66>{GetDoorTypeName(placeInfo.DoorType)} placed. Keep clicking to place more, right-click to stop.</color>");
+            }
+        }
+
+        /// <summary>
+        /// Get human-readable door type name
+        /// </summary>
+        private string GetDoorTypeName(int doorType)
+        {
+            switch (doorType)
+            {
+                case 0: return "Metal Door";
+                case 1: return "Garage Door";
+                case 2: return "Armored Door";
+                case 3: return "Armored Double Door";
+                case 4: return "Double Metal Door";
+                default: return "Door";
+            }
+        }
+
+        /// <summary>
+        /// Show placement mode UI
+        /// </summary>
+        private void ShowPlacementUI(BasePlayer player, int doorType, string gangName)
+        {
+            if (player == null) return;
+            
+            DestroyPlacementUI(player);
+            
+            var elements = new CuiElementContainer();
+            var panel = elements.Add(new CuiPanel
+            {
+                Image = { Color = "0.1 0.1 0.1 0.85" },
+                RectTransform = { AnchorMin = "0.4 0.9", AnchorMax = "0.6 0.96" },
+                CursorEnabled = false
+            }, "Overlay", "ManualDoor_PlacementUI");
+            
+            string doorName = GetDoorTypeName(doorType);
+            string gangText = string.IsNullOrEmpty(gangName) ? "" : $" ({gangName})";
+            
+            elements.Add(new CuiLabel
+            {
+                Text = { Text = $"PLACING: {doorName}{gangText}", FontSize = 14, Align = TextAnchor.MiddleCenter, Color = "0.5 1 0.5 1" },
+                RectTransform = { AnchorMin = "0 0.5", AnchorMax = "1 1" }
+            }, panel);
+            
+            elements.Add(new CuiLabel
+            {
+                Text = { Text = "Left-Click: Place | Right-Click: Cancel", FontSize = 10, Align = TextAnchor.MiddleCenter, Color = "0.8 0.8 0.8 1" },
+                RectTransform = { AnchorMin = "0 0", AnchorMax = "1 0.5" }
+            }, panel);
+            
+            CuiHelper.AddUi(player, elements);
+        }
+
+        /// <summary>
+        /// Destroy placement mode UI
+        /// </summary>
+        private void DestroyPlacementUI(BasePlayer player)
+        {
+            if (player == null) return;
+            CuiHelper.DestroyUi(player, "ManualDoor_PlacementUI");
         }
 
         #endregion
@@ -1757,6 +1944,114 @@ namespace Oxide.Plugins
             
             // Return as-is if no match (capitalize first letter)
             return char.ToUpper(input[0]) + input.Substring(1);
+        }
+
+        /// <summary>
+        /// Enter placement mode for quick door placement.
+        /// Usage: /placedoor [type] [gang] - type: metal/double/garage/armored/armoreddouble
+        /// In placement mode, left-click to place doors, right-click to cancel.
+        /// </summary>
+        [ChatCommand("placedoor")]
+        private void CmdPlaceDoor(BasePlayer player, string cmd, string[] args)
+        {
+            if (!permission.UserHasPermission(player.UserIDString, AdminPermission))
+            {
+                SendReply(player, "<color=#ff6666>Permission denied.</color>");
+                return;
+            }
+
+            // Parse door type
+            int doorType = 0; // default metal
+            string gangName = null;
+            
+            if (args.Length >= 1)
+            {
+                var typeArg = args[0].ToLower();
+                switch (typeArg)
+                {
+                    case "metal":
+                    case "m":
+                        doorType = 0;
+                        break;
+                    case "garage":
+                    case "g":
+                        doorType = 1;
+                        break;
+                    case "armored":
+                    case "a":
+                        doorType = 2;
+                        break;
+                    case "armoreddouble":
+                    case "ad":
+                        doorType = 3;
+                        break;
+                    case "double":
+                    case "d":
+                        doorType = 4;
+                        break;
+                    default:
+                        SendReply(player, "<color=#ffcc00>Invalid door type. Use: metal/double/garage/armored/armoreddouble (or m/d/g/a/ad)</color>");
+                        return;
+                }
+            }
+            
+            // Parse gang name for grandma doors (optional)
+            if (args.Length >= 2)
+            {
+                gangName = ResolveGangName(string.Join(" ", args.Skip(1)));
+            }
+            
+            EnterPlacementMode(player, doorType, gangName);
+            
+            string doorName = GetDoorTypeName(doorType);
+            string gangText = string.IsNullOrEmpty(gangName) ? "" : $" for {gangName}";
+            SendReply(player, $"<color=#66ff66>Placement mode: {doorName}{gangText}</color>\n" +
+                "<color=#aaaaaa>Left-click to place doors, right-click to cancel.</color>");
+        }
+
+        /// <summary>
+        /// Quick command to place grandma armored doors for a gang.
+        /// Usage: /placegrandma <gang>
+        /// </summary>
+        [ChatCommand("placegrandma")]
+        private void CmdPlaceGrandma(BasePlayer player, string cmd, string[] args)
+        {
+            if (!permission.UserHasPermission(player.UserIDString, AdminPermission))
+            {
+                SendReply(player, "<color=#ff6666>Permission denied.</color>");
+                return;
+            }
+
+            if (args.Length < 1)
+            {
+                SendReply(player, "<color=#ffcc00>Usage: /placegrandma <gang></color>\n" +
+                    "Example: /placegrandma pirus");
+                return;
+            }
+            
+            string gangName = ResolveGangName(string.Join(" ", args));
+            EnterPlacementMode(player, 2, gangName); // 2 = armored door
+            
+            SendReply(player, $"<color=#66ff66>Placement mode: Armored Grandma Door for {gangName}</color>\n" +
+                "<color=#aaaaaa>Doors will have locked codelock. Left-click to place, right-click to cancel.</color>");
+        }
+
+        /// <summary>
+        /// Cancel placement mode.
+        /// Usage: /cancelplace
+        /// </summary>
+        [ChatCommand("cancelplace")]
+        private void CmdCancelPlace(BasePlayer player, string cmd, string[] args)
+        {
+            if (placementMode.ContainsKey(player.userID))
+            {
+                ExitPlacementMode(player);
+                SendReply(player, "<color=#66ff66>Placement mode cancelled.</color>");
+            }
+            else
+            {
+                SendReply(player, "<color=#ffcc00>You're not in placement mode.</color>");
+            }
         }
 
         #endregion

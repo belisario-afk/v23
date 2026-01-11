@@ -97,6 +97,40 @@ You can use these shortcuts instead of full gang names:
 | `/spawngrandmametaldoubledoor <gang>` | `/spawngrandmametaldoubledoor Disciples` | Spawn metal double door with locked codelock for gang | Admin |
 | `/spawngrandmaarmoreddoubledoor <gang>` | `/spawngrandmaarmoreddoubledoor Pirus` | Spawn armored double door with locked codelock for gang | Admin |
 
+### Chat Commands - Quick Placement Mode (v3.9.0+)
+
+**Placement mode lets you place multiple doors quickly by clicking, like building in Rust.**
+
+| Command | Usage | Description | Permission |
+|---------|-------|-------------|------------|
+| `/placedoor [type] [gang]` | `/placedoor armored` | Enter placement mode - left-click to place doors | Admin |
+| `/placegrandma <gang>` | `/placegrandma Pirus` | Quick placement for grandma armored doors with codelock | Admin |
+| `/cancelplace` | `/cancelplace` | Exit placement mode | Admin |
+
+#### Placement Mode Door Types
+
+| Type Code | Door Type |
+|-----------|-----------|
+| `metal` or `m` | Metal Door |
+| `double` or `d` | Double Metal Door |
+| `garage` or `g` | Garage Door |
+| `armored` or `a` | Armored Door |
+| `armoreddouble` or `ad` | Armored Double Door |
+
+#### Placement Mode Examples
+
+```
+/placedoor metal           # Place metal doors
+/placedoor armored         # Place armored doors
+/placedoor a pirus         # Place armored grandma doors for Pirus
+/placegrandma vagos        # Quick: armored grandma doors for Vagos
+```
+
+**While in placement mode:**
+- **Left-click** = Place door at crosshair location
+- **Right-click** = Cancel placement mode
+- Door rotates to face the direction you're looking
+
 ### Chat Commands - Door Management
 
 | Command | Usage | Description | Permission |
