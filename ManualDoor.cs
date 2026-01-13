@@ -9,13 +9,34 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("ManualDoor", "Gemini", "3.7.0")]
-    [Description("Spawns permanent, non-decaying doors with claim timers, eviction, and admin move/rotate GUI. Integrates with HoodWars for gang-based hotel rooms.")]
+    [Info("ManualDoor", "Gemini", "3.10.0")]
+    [Description("Spawns permanent, non-decaying doors with claim timers, eviction, and admin move/rotate GUI. Includes placement mode with rotation (R key) for fast door setup. Integrates with HoodWars for gang-based hotel rooms and GrandmasHouse for gang-locked doors.")]
     public class ManualDoor : RustPlugin
     {
         private const string DoorPrefab = "assets/prefabs/building/door.hinged/door.hinged.metal.prefab";
         private const string DoubleDoorPrefab = "assets/prefabs/building/door.double.hinged/door.double.hinged.metal.prefab";
-        private const string CodeLockPrefab = "assets/prefabs/locks/keypad/lock.code.prefab";
+        private const string GarageDoorPrefab = "assets/prefabs/building/door.hinged/door.hinged.garage/door.hinged.garagedoor.prefab";
+        // Top-tier armored doors
+        private const string ArmoredDoorPrefab = "assets/prefabs/building/door.hinged/door.hinged.toptier.prefab";
+        private const string ArmoredDoubleDoorPrefab = "assets/prefabs/building/door.double.hinged/door.double.hinged.toptier.prefab";
+        // Codelock with pilot skin
+        private const string CodeLockPrefab = "assets/prefabs/locks/keypad/skins/codelock_a_pilot/lock.code.a.pilot.prefab";
+        // Sphere for zone visualization
+        private const string SpherePrefab = "assets/prefabs/visualization/sphere.prefab";
+        
+        // Skin ID placeholders for door customization
+        private const ulong MetalDoorSkinId = 0; // Placeholder - set to actual skin ID
+        private const ulong DoubleDoorSkinId = 0; // Placeholder - set to actual skin ID
+        private const ulong GarageDoorSkinId = 0; // Placeholder - set to actual skin ID
+        private const ulong ArmoredDoorSkinId = 0; // Placeholder - set to actual skin ID
+        private const ulong ArmoredDoubleDoorSkinId = 0; // Placeholder - set to actual skin ID
+        private const ulong CodeLockSkinId = 0; // Placeholder - set to actual skin ID
+        
+        // Default code for grandma zone doors - gang members can always open
+        private const string GrandmaZoneDoorCode = "1337";
+        
+        // Default sphere radius for door zones
+        private const float DefaultSphereRadius = 5f;
 
         private const string AdminPermission = "manualdoor.admin";
 
@@ -25,10 +46,17 @@ namespace Oxide.Plugins
 
         private StoredData data;
         private DynamicConfigFile dataFile;
+        
+        // Sphere tracking: doorNetId -> sphereEntity
+        private readonly Dictionary<ulong, SphereEntity> doorSpheres = new Dictionary<ulong, SphereEntity>();
 
         // HoodWars plugin reference for gang integration
         [PluginReference]
         private Plugin HoodWars;
+        
+        // GrandmasHouse plugin reference for grandma zone integration
+        [PluginReference]
+        private Plugin GrandmasHouse;
 
         // doorNetId -> timer
         private readonly Dictionary<ulong, Timer> claimTimers = new Dictionary<ulong, Timer>();
@@ -47,6 +75,20 @@ namespace Oxide.Plugins
 
         // doorNetId that we intentionally kill during move/rotate
         private readonly HashSet<ulong> intendedKills = new HashSet<ulong>();
+
+        // Placement mode tracking: playerId -> PlacementInfo
+        private readonly Dictionary<ulong, PlacementInfo> placementMode = new Dictionary<ulong, PlacementInfo>();
+        
+        // Preview door entities: playerId -> preview door
+        private readonly Dictionary<ulong, BaseEntity> previewDoors = new Dictionary<ulong, BaseEntity>();
+
+        private class PlacementInfo
+        {
+            public int DoorType; // 0 = metal, 1 = garage, 2 = armored, 3 = armored double, 4 = double metal
+            public string GrandmaZoneGang; // If set, will create grandma door with codelock
+            public bool IsPlacing;
+            public float Rotation; // Current rotation angle (0, 90, 180, 270)
+        }
 
         #region Data classes
 
@@ -74,6 +116,10 @@ namespace Oxide.Plugins
             public float RotZ;
             public float RotW;
             public bool IsDoubleDoor;
+            public int DoorType; // 0 = metal, 1 = garage, 2 = armored, 3 = armored double
+            public bool HasSphere;
+            public float SphereRadius;
+            public string GrandmaZoneGang; // For grandma door layouts
         }
 
         private class DoorInfo
@@ -94,6 +140,10 @@ namespace Oxide.Plugins
             public List<ulong> EvictedPlayers = new List<ulong>();
             public string LockCode;
             public bool IsDoubleDoor; // true for double door, false for single door
+            public int DoorType; // 0 = metal, 1 = garage, 2 = armored, 3 = armored double
+            public string GrandmaZoneGang; // If set, this door is in a grandma zone
+            public bool HasSphere; // If true, this door has a sphere marker
+            public float SphereRadius; // Radius of the sphere marker
 
             public Vector3 GetPosition() => new Vector3(PosX, PosY, PosZ);
             public Quaternion GetRotation() => new Quaternion(RotX, RotY, RotZ, RotW);
@@ -129,7 +179,11 @@ namespace Oxide.Plugins
                     ClaimExpiry = ClaimExpiry,
                     EvictedPlayers = new List<ulong>(EvictedPlayers),
                     LockCode = LockCode,
-                    IsDoubleDoor = IsDoubleDoor
+                    IsDoubleDoor = IsDoubleDoor,
+                    DoorType = DoorType,
+                    GrandmaZoneGang = GrandmaZoneGang,
+                    HasSphere = HasSphere,
+                    SphereRadius = SphereRadius
                 };
             }
         }
@@ -205,6 +259,9 @@ namespace Oxide.Plugins
             SaveData();
 
             timer.Every(1f, UpdateAllClaimUIs);
+            
+            // Restore all door spheres
+            RestoreAllDoorSpheres();
         }
 
         private void Unload()
@@ -213,12 +270,32 @@ namespace Oxide.Plugins
             {
                 DestroyClaimUI(player);
                 DestroyAdminUI(player);
+                DestroyPlacementUI(player);
+                ExitPlacementMode(player);
             }
 
             foreach (var t in claimTimers.Values)
                 t?.Destroy();
 
             claimTimers.Clear();
+            
+            // Clean up all spheres
+            foreach (var sphere in doorSpheres.Values)
+            {
+                if (sphere != null && !sphere.IsDestroyed)
+                    sphere.Kill();
+            }
+            doorSpheres.Clear();
+            
+            // Clean up preview doors
+            foreach (var preview in previewDoors.Values)
+            {
+                if (preview != null && !preview.IsDestroyed)
+                    preview.Kill();
+            }
+            previewDoors.Clear();
+            placementMode.Clear();
+            
             SaveData();
         }
 
@@ -226,6 +303,8 @@ namespace Oxide.Plugins
         {
             DestroyClaimUI(player);
             DestroyAdminUI(player);
+            DestroyPlacementUI(player);
+            ExitPlacementMode(player);
 
             editingDoor.Remove(player.userID);
             moveStep.Remove(player.userID);
@@ -414,8 +493,15 @@ namespace Oxide.Plugins
                 return null;
 
             // Check if it's a ManualDoor
-            if (!data.Doors.ContainsKey(parent.net.ID.Value))
+            if (!data.Doors.TryGetValue(parent.net.ID.Value, out var info))
                 return null;
+            
+            // Block code changes for grandma zone doors - code is fixed
+            if (!string.IsNullOrEmpty(info.GrandmaZoneGang))
+            {
+                SendReply(player, $"<color=#ff4444>[GRANDMA'S HOUSE]</color> This door's code cannot be changed. It belongs to {info.GrandmaZoneGang}.");
+                return false;
+            }
 
             // Check with HoodWars if player can use locks in this location
             if (HoodWars == null || !HoodWars.IsLoaded)
@@ -446,6 +532,24 @@ namespace Oxide.Plugins
 
             if (info.ClaimedBy == 0 || GetTimeRemaining(info) <= 0)
                 return null; // unclaimed/expired, allow normal behaviour
+
+            // Check if this door is in a Grandma zone - gang members always get access
+            if (!string.IsNullOrEmpty(info.GrandmaZoneGang))
+            {
+                if (HoodWars != null)
+                {
+                    var playerGang = HoodWars.Call("GetPlayerGangName", player.userID) as string;
+                    if (playerGang == info.GrandmaZoneGang)
+                    {
+                        return true; // Gang member can always access grandma zone doors
+                    }
+                    else
+                    {
+                        SendReply(player, $"<color=#ff4444>[GRANDMA'S HOUSE]</color> Only {info.GrandmaZoneGang} members can open this door!");
+                        return false; // Block enemy access
+                    }
+                }
+            }
 
             // authorized/whitelisted are fine
             if (info.ClaimedBy == player.userID)
@@ -522,6 +626,182 @@ namespace Oxide.Plugins
             return true;
         }
 
+        /// <summary>
+        /// Handle player input for placement mode - place door on left click
+        /// </summary>
+        private void OnPlayerInput(BasePlayer player, InputState input)
+        {
+            if (player == null || input == null) return;
+            
+            // Check if player is in placement mode
+            if (!placementMode.TryGetValue(player.userID, out var placeInfo) || !placeInfo.IsPlacing)
+                return;
+            
+            // Left mouse button pressed = place door
+            if (input.WasJustPressed(BUTTON.FIRE_PRIMARY))
+            {
+                PlaceDoorAtLook(player, placeInfo);
+            }
+            
+            // Right mouse button = cancel placement mode
+            if (input.WasJustPressed(BUTTON.FIRE_SECONDARY))
+            {
+                ExitPlacementMode(player);
+                SendReply(player, "<color=#ffcc00>Placement mode cancelled.</color>");
+            }
+            
+            // R key = rotate 90 degrees
+            if (input.WasJustPressed(BUTTON.RELOAD))
+            {
+                placeInfo.Rotation = (placeInfo.Rotation + 90f) % 360f;
+                ShowPlacementUI(player, placeInfo.DoorType, placeInfo.GrandmaZoneGang, placeInfo.Rotation);
+                SendReply(player, $"<color=#66ccff>Rotation: {placeInfo.Rotation}°</color>");
+            }
+        }
+
+        #endregion
+
+        #region Placement Mode
+
+        /// <summary>
+        /// Enter placement mode for quick door placement
+        /// </summary>
+        private void EnterPlacementMode(BasePlayer player, int doorType, string grandmaZoneGang = null)
+        {
+            if (player == null) return;
+            
+            // Exit any existing placement mode first
+            ExitPlacementMode(player);
+            
+            placementMode[player.userID] = new PlacementInfo
+            {
+                DoorType = doorType,
+                GrandmaZoneGang = grandmaZoneGang,
+                IsPlacing = true,
+                Rotation = 0f
+            };
+            
+            ShowPlacementUI(player, doorType, grandmaZoneGang, 0f);
+        }
+
+        /// <summary>
+        /// Exit placement mode and clean up
+        /// </summary>
+        private void ExitPlacementMode(BasePlayer player)
+        {
+            if (player == null) return;
+            
+            placementMode.Remove(player.userID);
+            DestroyPlacementUI(player);
+            
+            // Destroy any preview door
+            if (previewDoors.TryGetValue(player.userID, out var preview))
+            {
+                if (preview != null && !preview.IsDestroyed)
+                    preview.Kill();
+                previewDoors.Remove(player.userID);
+            }
+        }
+
+        /// <summary>
+        /// Place a door where the player is looking
+        /// </summary>
+        private void PlaceDoorAtLook(BasePlayer player, PlacementInfo placeInfo)
+        {
+            if (player == null || placeInfo == null) return;
+            
+            if (!Physics.Raycast(player.eyes.HeadRay(), out var hit, 10f))
+            {
+                SendReply(player, "<color=#ffcc00>Look at a surface to place the door.</color>");
+                return;
+            }
+            
+            // Use stored rotation instead of player direction
+            var rot = Quaternion.Euler(0f, placeInfo.Rotation, 0f);
+            BaseEntity door;
+            
+            // If grandma zone gang is set, spawn with codelock
+            if (!string.IsNullOrEmpty(placeInfo.GrandmaZoneGang))
+            {
+                door = SpawnGrandmaDoorWithCodeLock(hit.point, rot, player.userID, placeInfo.DoorType, placeInfo.GrandmaZoneGang);
+                if (door != null)
+                    SendReply(player, $"<color=#66ff66>Grandma {GetDoorTypeName(placeInfo.DoorType)} placed for {placeInfo.GrandmaZoneGang}. Keep clicking to place more, R=rotate, right-click to stop.</color>");
+            }
+            else
+            {
+                door = SpawnPermanentDoorByType(hit.point, rot, player.userID, placeInfo.DoorType);
+                if (door != null)
+                    SendReply(player, $"<color=#66ff66>{GetDoorTypeName(placeInfo.DoorType)} placed. Keep clicking to place more, R=rotate, right-click to stop.</color>");
+            }
+        }
+
+        /// <summary>
+        /// Get human-readable door type name
+        /// </summary>
+        private string GetDoorTypeName(int doorType)
+        {
+            switch (doorType)
+            {
+                case 0: return "Metal Door";
+                case 1: return "Garage Door";
+                case 2: return "Armored Door";
+                case 3: return "Armored Double Door";
+                case 4: return "Double Metal Door";
+                default: return "Door";
+            }
+        }
+
+        /// <summary>
+        /// Show placement mode UI
+        /// </summary>
+        private void ShowPlacementUI(BasePlayer player, int doorType, string gangName, float rotation = 0f)
+        {
+            if (player == null) return;
+            
+            DestroyPlacementUI(player);
+            
+            var elements = new CuiElementContainer();
+            var panel = elements.Add(new CuiPanel
+            {
+                Image = { Color = "0.1 0.2 0.3 0.9" }, // Blue-ish tint for building mode feel
+                RectTransform = { AnchorMin = "0.35 0.88", AnchorMax = "0.65 0.98" },
+                CursorEnabled = false
+            }, "Overlay", "ManualDoor_PlacementUI");
+            
+            string doorName = GetDoorTypeName(doorType);
+            string gangText = string.IsNullOrEmpty(gangName) ? "" : $" ({gangName})";
+            
+            elements.Add(new CuiLabel
+            {
+                Text = { Text = $"PLACING: {doorName}{gangText}", FontSize = 14, Align = TextAnchor.MiddleCenter, Color = "0.4 0.8 1 1" }, // Cyan/blue color
+                RectTransform = { AnchorMin = "0 0.65", AnchorMax = "1 1" }
+            }, panel);
+            
+            // Show rotation
+            elements.Add(new CuiLabel
+            {
+                Text = { Text = $"Rotation: {rotation}°", FontSize = 12, Align = TextAnchor.MiddleCenter, Color = "1 1 0.5 1" }, // Yellow for rotation
+                RectTransform = { AnchorMin = "0 0.35", AnchorMax = "1 0.65" }
+            }, panel);
+            
+            elements.Add(new CuiLabel
+            {
+                Text = { Text = "LClick: Place | R: Rotate | RClick: Cancel", FontSize = 10, Align = TextAnchor.MiddleCenter, Color = "0.8 0.8 0.8 1" },
+                RectTransform = { AnchorMin = "0 0", AnchorMax = "1 0.35" }
+            }, panel);
+            
+            CuiHelper.AddUi(player, elements);
+        }
+
+        /// <summary>
+        /// Destroy placement mode UI
+        /// </summary>
+        private void DestroyPlacementUI(BasePlayer player)
+        {
+            if (player == null) return;
+            CuiHelper.DestroyUi(player, "ManualDoor_PlacementUI");
+        }
+
         #endregion
 
         #region Chat commands
@@ -570,6 +850,318 @@ namespace Oxide.Plugins
                 SendReply(player, "<color=#66ff66>Double door spawned. Use /dooredit while looking at it to adjust.</color>");
         }
 
+        [ChatCommand("spawngaragedoor")]
+        private void CmdSpawnGarageDoor(BasePlayer player, string cmd, string[] args)
+        {
+            if (!permission.UserHasPermission(player.UserIDString, AdminPermission))
+            {
+                SendReply(player, "<color=#ff6666>Permission denied.</color>");
+                return;
+            }
+
+            if (!Physics.Raycast(player.eyes.HeadRay(), out var hit, 10f))
+            {
+                SendReply(player, "<color=#ffcc00>Look at the ground to place the door.</color>");
+                return;
+            }
+
+            var rot = Quaternion.Euler(0f, player.viewAngles.y + 180f, 0f);
+            var door = SpawnPermanentDoorByType(hit.point, rot, player.userID, 1); // 1 = garage door
+
+            if (door != null)
+                SendReply(player, "<color=#66ff66>Garage door spawned. Use /dooredit while looking at it to adjust.</color>");
+        }
+
+        [ChatCommand("spawnarmoreddoor")]
+        private void CmdSpawnArmoredDoor(BasePlayer player, string cmd, string[] args)
+        {
+            if (!permission.UserHasPermission(player.UserIDString, AdminPermission))
+            {
+                SendReply(player, "<color=#ff6666>Permission denied.</color>");
+                return;
+            }
+
+            if (!Physics.Raycast(player.eyes.HeadRay(), out var hit, 10f))
+            {
+                SendReply(player, "<color=#ffcc00>Look at the ground to place the door.</color>");
+                return;
+            }
+
+            var rot = Quaternion.Euler(0f, player.viewAngles.y + 180f, 0f);
+            var door = SpawnPermanentDoorByType(hit.point, rot, player.userID, 2); // 2 = armored door
+
+            if (door != null)
+                SendReply(player, "<color=#66ff66>Armored door spawned. Use /dooredit while looking at it to adjust.</color>");
+        }
+
+        [ChatCommand("spawnarmoreddoubledoor")]
+        private void CmdSpawnArmoredDoubleDoor(BasePlayer player, string cmd, string[] args)
+        {
+            if (!permission.UserHasPermission(player.UserIDString, AdminPermission))
+            {
+                SendReply(player, "<color=#ff6666>Permission denied.</color>");
+                return;
+            }
+
+            if (!Physics.Raycast(player.eyes.HeadRay(), out var hit, 10f))
+            {
+                SendReply(player, "<color=#ffcc00>Look at the ground to place the door.</color>");
+                return;
+            }
+
+            var rot = Quaternion.Euler(0f, player.viewAngles.y + 180f, 0f);
+            var door = SpawnPermanentDoorByType(hit.point, rot, player.userID, 3); // 3 = armored double door
+
+            if (door != null)
+                SendReply(player, "<color=#66ff66>Armored double door spawned. Use /dooredit while looking at it to adjust.</color>");
+        }
+
+        /// <summary>
+        /// Spawn a grandma door (armored with auto codelock) for a specific gang.
+        /// Usage: /spawngrandmadoor <gang_name>
+        /// </summary>
+        [ChatCommand("spawngrandmadoor")]
+        private void CmdSpawnGrandmaDoor(BasePlayer player, string cmd, string[] args)
+        {
+            if (!permission.UserHasPermission(player.UserIDString, AdminPermission))
+            {
+                SendReply(player, "<color=#ff6666>Permission denied.</color>");
+                return;
+            }
+
+            if (args.Length < 1)
+            {
+                SendReply(player, "<color=#ffcc00>Usage: /spawngrandmadoor <gang_name></color>");
+                return;
+            }
+
+            string gangName = string.Join(" ", args);
+
+            if (!Physics.Raycast(player.eyes.HeadRay(), out var hit, 10f))
+            {
+                SendReply(player, "<color=#ffcc00>Look at the ground to place the door.</color>");
+                return;
+            }
+
+            var rot = Quaternion.Euler(0f, player.viewAngles.y + 180f, 0f);
+            var door = SpawnGrandmaDoorWithCodeLock(hit.point, rot, player.userID, 2, gangName); // 2 = armored door
+
+            if (door != null)
+                SendReply(player, $"<color=#66ff66>Grandma door spawned for {gangName} with locked codelock (code: {GrandmaZoneDoorCode}). Gang members can always open.</color>");
+        }
+        
+        /// <summary>
+        /// Spawn a grandma garage door (with auto codelock) for a specific gang.
+        /// Usage: /spawngrandmagaragedoor <gang_name>
+        /// </summary>
+        [ChatCommand("spawngrandmagaragedoor")]
+        private void CmdSpawnGrandmaGarageDoor(BasePlayer player, string cmd, string[] args)
+        {
+            if (!permission.UserHasPermission(player.UserIDString, AdminPermission))
+            {
+                SendReply(player, "<color=#ff6666>Permission denied.</color>");
+                return;
+            }
+
+            if (args.Length < 1)
+            {
+                SendReply(player, "<color=#ffcc00>Usage: /spawngrandmagaragedoor <gang_name></color>");
+                return;
+            }
+
+            string gangName = string.Join(" ", args);
+
+            if (!Physics.Raycast(player.eyes.HeadRay(), out var hit, 10f))
+            {
+                SendReply(player, "<color=#ffcc00>Look at the ground to place the door.</color>");
+                return;
+            }
+
+            var rot = Quaternion.Euler(0f, player.viewAngles.y + 180f, 0f);
+            var door = SpawnGrandmaDoorWithCodeLock(hit.point, rot, player.userID, 1, gangName); // 1 = garage door
+
+            if (door != null)
+                SendReply(player, $"<color=#66ff66>Grandma garage door spawned for {gangName} with locked codelock (code: {GrandmaZoneDoorCode}). Gang members can always open.</color>");
+        }
+        
+        /// <summary>
+        /// Spawn a grandma metal door (with auto codelock) for a specific gang.
+        /// Usage: /spawngrandmametaldoor <gang_name>
+        /// </summary>
+        [ChatCommand("spawngrandmametaldoor")]
+        private void CmdSpawnGrandmaMetalDoor(BasePlayer player, string cmd, string[] args)
+        {
+            if (!permission.UserHasPermission(player.UserIDString, AdminPermission))
+            {
+                SendReply(player, "<color=#ff6666>Permission denied.</color>");
+                return;
+            }
+
+            if (args.Length < 1)
+            {
+                SendReply(player, "<color=#ffcc00>Usage: /spawngrandmametaldoor <gang_name></color>");
+                return;
+            }
+
+            string gangName = string.Join(" ", args);
+
+            if (!Physics.Raycast(player.eyes.HeadRay(), out var hit, 10f))
+            {
+                SendReply(player, "<color=#ffcc00>Look at the ground to place the door.</color>");
+                return;
+            }
+
+            var rot = Quaternion.Euler(0f, player.viewAngles.y + 180f, 0f);
+            var door = SpawnGrandmaDoorWithCodeLock(hit.point, rot, player.userID, 0, gangName); // 0 = metal door
+
+            if (door != null)
+                SendReply(player, $"<color=#66ff66>Grandma metal door spawned for {gangName} with locked codelock (code: {GrandmaZoneDoorCode}). Gang members can always open.</color>");
+        }
+        
+        /// <summary>
+        /// Spawn a grandma metal double door (with auto codelock) for a specific gang.
+        /// Usage: /spawngrandmametaldoubledoor <gang_name>
+        /// </summary>
+        [ChatCommand("spawngrandmametaldoubledoor")]
+        private void CmdSpawnGrandmaMetalDoubleDoor(BasePlayer player, string cmd, string[] args)
+        {
+            if (!permission.UserHasPermission(player.UserIDString, AdminPermission))
+            {
+                SendReply(player, "<color=#ff6666>Permission denied.</color>");
+                return;
+            }
+
+            if (args.Length < 1)
+            {
+                SendReply(player, "<color=#ffcc00>Usage: /spawngrandmametaldoubledoor <gang_name></color>");
+                return;
+            }
+
+            string gangName = string.Join(" ", args);
+
+            if (!Physics.Raycast(player.eyes.HeadRay(), out var hit, 10f))
+            {
+                SendReply(player, "<color=#ffcc00>Look at the ground to place the door.</color>");
+                return;
+            }
+
+            var rot = Quaternion.Euler(0f, player.viewAngles.y + 180f, 0f);
+            // Spawn metal double door (type 0 with isDouble = true)
+            var door = SpawnGrandmaDoubleDoorWithCodeLock(hit.point, rot, player.userID, 0, gangName);
+
+            if (door != null)
+                SendReply(player, $"<color=#66ff66>Grandma metal double door spawned for {gangName} with locked codelock (code: {GrandmaZoneDoorCode}). Gang members can always open.</color>");
+        }
+        
+        /// <summary>
+        /// Spawn a grandma armored double door (with auto codelock) for a specific gang.
+        /// Usage: /spawngrandmaarmoreddoubledoor <gang_name>
+        /// </summary>
+        [ChatCommand("spawngrandmaarmoreddoubledoor")]
+        private void CmdSpawnGrandmaArmoredDoubleDoor(BasePlayer player, string cmd, string[] args)
+        {
+            if (!permission.UserHasPermission(player.UserIDString, AdminPermission))
+            {
+                SendReply(player, "<color=#ff6666>Permission denied.</color>");
+                return;
+            }
+
+            if (args.Length < 1)
+            {
+                SendReply(player, "<color=#ffcc00>Usage: /spawngrandmaarmoreddoubledoor <gang_name></color>");
+                return;
+            }
+
+            string gangName = string.Join(" ", args);
+
+            if (!Physics.Raycast(player.eyes.HeadRay(), out var hit, 10f))
+            {
+                SendReply(player, "<color=#ffcc00>Look at the ground to place the door.</color>");
+                return;
+            }
+
+            var rot = Quaternion.Euler(0f, player.viewAngles.y + 180f, 0f);
+            // Spawn armored double door (type 2 with isDouble = true)
+            var door = SpawnGrandmaDoubleDoorWithCodeLock(hit.point, rot, player.userID, 2, gangName);
+
+            if (door != null)
+                SendReply(player, $"<color=#66ff66>Grandma armored double door spawned for {gangName} with locked codelock (code: {GrandmaZoneDoorCode}). Gang members can always open.</color>");
+        }
+
+        [ChatCommand("addsphere")]
+        private void CmdAddSphere(BasePlayer player, string cmd, string[] args)
+        {
+            if (!permission.UserHasPermission(player.UserIDString, AdminPermission))
+            {
+                SendReply(player, "<color=#ff6666>Permission denied.</color>");
+                return;
+            }
+
+            if (!Physics.Raycast(player.eyes.HeadRay(), out var hit, 5f))
+            {
+                SendReply(player, "<color=#ffcc00>Look at a ManualDoor to add a sphere.</color>");
+                return;
+            }
+
+            var ent = hit.GetEntity();
+            if (ent is CodeLock)
+                ent = ent.GetParentEntity();
+
+            if (ent == null || ent.net == null || !data.Doors.TryGetValue(ent.net.ID.Value, out var info))
+            {
+                SendReply(player, "<color=#ffcc00>That is not a ManualDoor.</color>");
+                return;
+            }
+
+            float radius = DefaultSphereRadius;
+            if (args.Length > 0)
+            {
+                float.TryParse(args[0], out radius);
+                if (radius <= 0) radius = DefaultSphereRadius;
+            }
+
+            // Create or update sphere
+            CreateDoorSphere(ent.net.ID.Value, info, radius);
+            info.HasSphere = true;
+            info.SphereRadius = radius;
+            SaveData();
+
+            SendReply(player, $"<color=#66ff66>Sphere added to door with radius {radius}. Use /removesphere to remove.</color>");
+        }
+
+        [ChatCommand("removesphere")]
+        private void CmdRemoveSphere(BasePlayer player, string cmd, string[] args)
+        {
+            if (!permission.UserHasPermission(player.UserIDString, AdminPermission))
+            {
+                SendReply(player, "<color=#ff6666>Permission denied.</color>");
+                return;
+            }
+
+            if (!Physics.Raycast(player.eyes.HeadRay(), out var hit, 5f))
+            {
+                SendReply(player, "<color=#ffcc00>Look at a ManualDoor to remove its sphere.</color>");
+                return;
+            }
+
+            var ent = hit.GetEntity();
+            if (ent is CodeLock)
+                ent = ent.GetParentEntity();
+
+            if (ent == null || ent.net == null || !data.Doors.TryGetValue(ent.net.ID.Value, out var info))
+            {
+                SendReply(player, "<color=#ffcc00>That is not a ManualDoor.</color>");
+                return;
+            }
+
+            RemoveDoorSphere(ent.net.ID.Value);
+            info.HasSphere = false;
+            info.SphereRadius = 0;
+            SaveData();
+
+            SendReply(player, "<color=#66ff66>Sphere removed from door.</color>");
+        }
+
         [ChatCommand("removedoor")]
         private void CmdRemoveDoor(BasePlayer player, string cmd, string[] args)
         {
@@ -594,6 +1186,9 @@ namespace Oxide.Plugins
                 SendReply(player, "<color=#ffcc00>That is not a ManualDoor.</color>");
                 return;
             }
+            
+            // Remove sphere if it has one
+            RemoveDoorSphere(ent.net.ID.Value);
 
             data.Doors.Remove(ent.net.ID.Value);
             SaveData();
@@ -662,6 +1257,10 @@ namespace Oxide.Plugins
                 lockEnt.SetParent(ent, "lock");
                 lockEnt.OwnerID = info.OwnerId != 0 ? info.OwnerId : player.userID;
                 lockEnt.Spawn();
+                
+                // Register the lock with the door's slot system
+                ent.SetSlot(BaseEntity.Slot.Lock, lockEnt);
+                
                 codeLock = lockEnt as CodeLock;
             }
 
@@ -739,12 +1338,24 @@ namespace Oxide.Plugins
 
             var remaining = GetTimeRemaining(info);
             var timeStr = remaining > 0 ? FormatTime((int)remaining) : "Expired / Unclaimed";
+            
+            string doorTypeStr = "Metal";
+            switch (info.DoorType)
+            {
+                case 1: doorTypeStr = "Garage"; break;
+                case 2: doorTypeStr = "Armored"; break;
+                case 3: doorTypeStr = "Armored Double"; break;
+            }
+            if (info.IsDoubleDoor && info.DoorType == 0) doorTypeStr = "Metal Double";
 
             SendReply(player, "<color=#66ccff>=== ManualDoor Info ===</color>");
             SendReply(player, $"<color=#ffffff>ID: {ent.net.ID.Value}</color>");
+            SendReply(player, $"<color=#ffffff>Type: {doorTypeStr}</color>");
             SendReply(player, $"<color=#ffffff>Claimed By: {claimant}</color>");
             SendReply(player, $"<color=#ffffff>Time Remaining: {timeStr}</color>");
             SendReply(player, $"<color=#ffffff>Evicted Players: {info.EvictedPlayers.Count}</color>");
+            SendReply(player, $"<color=#ffffff>Has Sphere: {info.HasSphere} (Radius: {info.SphereRadius})</color>");
+            SendReply(player, $"<color=#ffffff>Grandma Zone: {info.GrandmaZoneGang ?? "None"}</color>");
         }
 
         [ChatCommand("resetdoor")]
@@ -854,7 +1465,11 @@ namespace Oxide.Plugins
                     RotY = door.RotY,
                     RotZ = door.RotZ,
                     RotW = door.RotW,
-                    IsDoubleDoor = door.IsDoubleDoor
+                    IsDoubleDoor = door.IsDoubleDoor,
+                    DoorType = door.DoorType,
+                    HasSphere = door.HasSphere,
+                    SphereRadius = door.SphereRadius,
+                    GrandmaZoneGang = door.GrandmaZoneGang
                 });
             }
 
@@ -894,8 +1509,9 @@ namespace Oxide.Plugins
         }
 
         /// <summary>
-        /// Spawn doors from a saved layout at a new position.
+        /// Spawn doors from a saved layout at EXACT saved world positions.
         /// Usage: /spawnlayout <name>
+        /// NOTE: This spawns doors at their original saved world coordinates!
         /// </summary>
         [ChatCommand("spawnlayout")]
         private void CmdSpawnLayout(BasePlayer player, string cmd, string[] args)
@@ -908,7 +1524,59 @@ namespace Oxide.Plugins
 
             if (args.Length < 1)
             {
-                SendReply(player, "<color=#ffcc00>Usage: /spawnlayout <name></color>");
+                SendReply(player, "<color=#ffcc00>Usage: /spawnlayout <name></color>\n" +
+                    "This spawns doors at their EXACT saved world positions.\n" +
+                    "Use /spawnlayoutoffset <name> to spawn relative to where you're looking.");
+                return;
+            }
+
+            string layoutName = args[0].ToLower();
+
+            if (data.SavedLayouts == null || !data.SavedLayouts.TryGetValue(layoutName, out var layout))
+            {
+                SendReply(player, $"<color=#ff6666>Layout '{layoutName}' not found.</color>");
+                return;
+            }
+
+            int spawned = 0;
+
+            foreach (var entry in layout.Entries)
+            {
+                // Use EXACT saved world coordinates (offsets + saved origin = original world position)
+                var pos = new Vector3(
+                    layout.SavedOriginX + entry.OffsetX,
+                    layout.SavedOriginY + entry.OffsetY,
+                    layout.SavedOriginZ + entry.OffsetZ
+                );
+                var rot = new Quaternion(entry.RotX, entry.RotY, entry.RotZ, entry.RotW);
+
+                // Spawn door with proper type
+                BaseEntity door = SpawnLayoutDoor(pos, rot, player.userID, entry);
+                
+                if (door != null)
+                    spawned++;
+            }
+
+            SendReply(player, $"<color=#66ff66>Spawned {spawned}/{layout.Entries.Count} doors from layout '{layoutName}' at original positions.</color>");
+        }
+        
+        /// <summary>
+        /// Spawn doors from a saved layout with offset from raycast point.
+        /// Usage: /spawnlayoutoffset <name>
+        /// </summary>
+        [ChatCommand("spawnlayoutoffset")]
+        private void CmdSpawnLayoutOffset(BasePlayer player, string cmd, string[] args)
+        {
+            if (!permission.UserHasPermission(player.UserIDString, AdminPermission))
+            {
+                SendReply(player, "<color=#ff6666>Permission denied.</color>");
+                return;
+            }
+
+            if (args.Length < 1)
+            {
+                SendReply(player, "<color=#ffcc00>Usage: /spawnlayoutoffset <name></color>\n" +
+                    "Look at the ground where you want the center of the layout.");
                 return;
             }
 
@@ -938,12 +1606,59 @@ namespace Oxide.Plugins
                 );
                 var rot = new Quaternion(entry.RotX, entry.RotY, entry.RotZ, entry.RotW);
 
-                var door = SpawnPermanentDoor(pos, rot, player.userID, entry.IsDoubleDoor);
+                // Spawn door with proper type
+                BaseEntity door = SpawnLayoutDoor(pos, rot, player.userID, entry);
+                
                 if (door != null)
                     spawned++;
             }
 
             SendReply(player, $"<color=#66ff66>Spawned {spawned}/{layout.Entries.Count} doors from layout '{layoutName}' at ({newOrigin.x:F1}, {newOrigin.y:F1}, {newOrigin.z:F1})</color>");
+        }
+        
+        /// <summary>
+        /// Helper to spawn a door from a layout entry
+        /// </summary>
+        private BaseEntity SpawnLayoutDoor(Vector3 pos, Quaternion rot, ulong ownerId, DoorLayoutEntry entry)
+        {
+            BaseEntity door = null;
+            
+            if (!string.IsNullOrEmpty(entry.GrandmaZoneGang))
+            {
+                // Grandma door with codelock
+                if (entry.IsDoubleDoor)
+                    door = SpawnGrandmaDoubleDoorWithCodeLock(pos, rot, ownerId, entry.DoorType, entry.GrandmaZoneGang);
+                else
+                    door = SpawnGrandmaDoorWithCodeLock(pos, rot, ownerId, entry.DoorType, entry.GrandmaZoneGang);
+            }
+            else if (entry.DoorType > 0)
+            {
+                // Non-grandma door by type
+                door = SpawnPermanentDoorByType(pos, rot, ownerId, entry.DoorType, entry.IsDoubleDoor);
+            }
+            else
+            {
+                // Regular metal door
+                door = SpawnPermanentDoor(pos, rot, ownerId, entry.IsDoubleDoor);
+            }
+            
+            // Restore grandma zone and sphere settings
+            if (door != null && data.Doors.TryGetValue(door.net.ID.Value, out var info))
+            {
+                if (!string.IsNullOrEmpty(entry.GrandmaZoneGang))
+                {
+                    info.GrandmaZoneGang = entry.GrandmaZoneGang;
+                }
+                if (entry.HasSphere && entry.SphereRadius > 0)
+                {
+                    info.HasSphere = true;
+                    info.SphereRadius = entry.SphereRadius;
+                    CreateDoorSphere(door.net.ID.Value, info, entry.SphereRadius);
+                }
+                SaveData();
+            }
+            
+            return door;
         }
 
         /// <summary>
@@ -976,6 +1691,179 @@ namespace Oxide.Plugins
             data.SavedLayouts.Remove(layoutName);
             SaveData();
             SendReply(player, $"<color=#66ff66>Layout '{layoutName}' deleted.</color>");
+        }
+
+        /// <summary>
+        /// Save only grandma zone doors as a layout for a specific gang.
+        /// Usage: /savegrandmalayout <name> <gang_name>
+        /// Gang names: Pirus, Vagos, Surenos, Disciples (or full names)
+        /// </summary>
+        [ChatCommand("savegrandmalayout")]
+        private void CmdSaveGrandmaLayout(BasePlayer player, string cmd, string[] args)
+        {
+            if (!permission.UserHasPermission(player.UserIDString, AdminPermission))
+            {
+                SendReply(player, "<color=#ff6666>Permission denied.</color>");
+                return;
+            }
+
+            if (args.Length < 2)
+            {
+                SendReply(player, "<color=#ffcc00>Usage: /savegrandmalayout <layout_name> <gang_name></color>\n" +
+                    "Gang names: Pirus, Vagos, Surenos, Disciples\n" +
+                    "Example: /savegrandmalayout pirus_house Pirus");
+                return;
+            }
+
+            string layoutName = args[0].ToLower();
+            string gangName = ResolveGangName(args[1]);
+
+            // Get only doors that belong to this specific gang
+            var gangDoors = data.Doors.Values
+                .Where(d => d.GrandmaZoneGang == gangName)
+                .ToList();
+
+            if (gangDoors.Count == 0)
+            {
+                SendReply(player, $"<color=#ff6666>No doors found for gang '{gangName}'.</color>\n" +
+                    $"Use /spawngrandmadoor {args[1]} or /spawngrandmagaragedoor {args[1]} to create doors first.");
+                return;
+            }
+
+            // Calculate centroid of this gang's doors
+            float originX = 0, originY = 0, originZ = 0;
+            foreach (var door in gangDoors)
+            {
+                originX += door.PosX;
+                originY += door.PosY;
+                originZ += door.PosZ;
+            }
+            originX /= gangDoors.Count;
+            originY /= gangDoors.Count;
+            originZ /= gangDoors.Count;
+
+            var layout = new DoorLayoutInfo
+            {
+                SavedOriginX = originX,
+                SavedOriginY = originY,
+                SavedOriginZ = originZ
+            };
+
+            foreach (var door in gangDoors)
+            {
+                layout.Entries.Add(new DoorLayoutEntry
+                {
+                    OffsetX = door.PosX - originX,
+                    OffsetY = door.PosY - originY,
+                    OffsetZ = door.PosZ - originZ,
+                    RotX = door.RotX,
+                    RotY = door.RotY,
+                    RotZ = door.RotZ,
+                    RotW = door.RotW,
+                    IsDoubleDoor = door.IsDoubleDoor,
+                    DoorType = door.DoorType,
+                    HasSphere = door.HasSphere,
+                    SphereRadius = door.SphereRadius,
+                    GrandmaZoneGang = gangName // Preserve the correct gang name
+                });
+            }
+
+            if (data.SavedLayouts == null)
+                data.SavedLayouts = new Dictionary<string, DoorLayoutInfo>();
+
+            data.SavedLayouts[layoutName] = layout;
+            SaveData();
+
+            SendReply(player, $"<color=#66ff66>Layout '{layoutName}' saved with {layout.Entries.Count} doors for '{gangName}'.</color>");
+        }
+        
+        /// <summary>
+        /// Save ALL grandma doors from all gangs as a single layout (preserves each door's gang).
+        /// Usage: /saveallgrandmalayouts <name>
+        /// </summary>
+        [ChatCommand("saveallgrandmalayouts")]
+        private void CmdSaveAllGrandmaLayouts(BasePlayer player, string cmd, string[] args)
+        {
+            if (!permission.UserHasPermission(player.UserIDString, AdminPermission))
+            {
+                SendReply(player, "<color=#ff6666>Permission denied.</color>");
+                return;
+            }
+
+            if (args.Length < 1)
+            {
+                SendReply(player, "<color=#ffcc00>Usage: /saveallgrandmalayouts <layout_name></color>\n" +
+                    "This saves ALL grandma doors from all gangs, preserving each door's gang assignment.");
+                return;
+            }
+
+            string layoutName = args[0].ToLower();
+
+            // Get all doors that have a gang assignment
+            var allGangDoors = data.Doors.Values
+                .Where(d => !string.IsNullOrEmpty(d.GrandmaZoneGang))
+                .ToList();
+
+            if (allGangDoors.Count == 0)
+            {
+                SendReply(player, "<color=#ff6666>No grandma doors found. Use /spawngrandmadoor <gang> to create doors first.</color>");
+                return;
+            }
+
+            // Calculate centroid
+            float originX = 0, originY = 0, originZ = 0;
+            foreach (var door in allGangDoors)
+            {
+                originX += door.PosX;
+                originY += door.PosY;
+                originZ += door.PosZ;
+            }
+            originX /= allGangDoors.Count;
+            originY /= allGangDoors.Count;
+            originZ /= allGangDoors.Count;
+
+            var layout = new DoorLayoutInfo
+            {
+                SavedOriginX = originX,
+                SavedOriginY = originY,
+                SavedOriginZ = originZ
+            };
+
+            // Group by gang for reporting
+            var gangCounts = new Dictionary<string, int>();
+
+            foreach (var door in allGangDoors)
+            {
+                layout.Entries.Add(new DoorLayoutEntry
+                {
+                    OffsetX = door.PosX - originX,
+                    OffsetY = door.PosY - originY,
+                    OffsetZ = door.PosZ - originZ,
+                    RotX = door.RotX,
+                    RotY = door.RotY,
+                    RotZ = door.RotZ,
+                    RotW = door.RotW,
+                    IsDoubleDoor = door.IsDoubleDoor,
+                    DoorType = door.DoorType,
+                    HasSphere = door.HasSphere,
+                    SphereRadius = door.SphereRadius,
+                    GrandmaZoneGang = door.GrandmaZoneGang // Preserve original gang assignment
+                });
+                
+                if (!gangCounts.ContainsKey(door.GrandmaZoneGang))
+                    gangCounts[door.GrandmaZoneGang] = 0;
+                gangCounts[door.GrandmaZoneGang]++;
+            }
+
+            if (data.SavedLayouts == null)
+                data.SavedLayouts = new Dictionary<string, DoorLayoutInfo>();
+
+            data.SavedLayouts[layoutName] = layout;
+            SaveData();
+
+            string gangSummary = string.Join(", ", gangCounts.Select(g => $"{g.Key}: {g.Value}"));
+            SendReply(player, $"<color=#66ff66>Layout '{layoutName}' saved with {layout.Entries.Count} total doors.</color>\n" +
+                $"Gang breakdown: {gangSummary}");
         }
 
         /// <summary>
@@ -1043,6 +1931,143 @@ namespace Oxide.Plugins
 
             SaveData();
             SendReply(player, $"<color=#66ff66>Moved {moved} doors by offset ({x:F2}, {y:F2}, {z:F2})</color>");
+        }
+        
+        /// <summary>
+        /// Resolve partial gang names to full gang names
+        /// </summary>
+        private string ResolveGangName(string input)
+        {
+            if (string.IsNullOrEmpty(input)) return input;
+            
+            input = input.ToLower().Trim();
+            
+            // Check for partial matches
+            if (input.Contains("piru") || input.Contains("west") || input == "p")
+                return "Westside Pirus";
+            if (input.Contains("vago") || input.Contains("north") || input == "v")
+                return "Northside Vagos";
+            if (input.Contains("sure") || input.Contains("south") || input == "s" || input.Contains("sureno"))
+                return "Southside Sureños";
+            if (input.Contains("disc") || input.Contains("east") || input == "d" || input.Contains("disciple"))
+                return "Eastside Disciples";
+            
+            // Check for exact full names (case insensitive)
+            if (input == "westside pirus") return "Westside Pirus";
+            if (input == "northside vagos") return "Northside Vagos";
+            if (input == "southside sureños" || input == "southside surenos") return "Southside Sureños";
+            if (input == "eastside disciples") return "Eastside Disciples";
+            
+            // Return as-is if no match (capitalize first letter)
+            return char.ToUpper(input[0]) + input.Substring(1);
+        }
+
+        /// <summary>
+        /// Enter placement mode for quick door placement.
+        /// Usage: /placedoor [type] [gang] - type: metal/double/garage/armored/armoreddouble
+        /// In placement mode, left-click to place doors, right-click to cancel.
+        /// </summary>
+        [ChatCommand("placedoor")]
+        private void CmdPlaceDoor(BasePlayer player, string cmd, string[] args)
+        {
+            if (!permission.UserHasPermission(player.UserIDString, AdminPermission))
+            {
+                SendReply(player, "<color=#ff6666>Permission denied.</color>");
+                return;
+            }
+
+            // Parse door type
+            int doorType = 0; // default metal
+            string gangName = null;
+            
+            if (args.Length >= 1)
+            {
+                var typeArg = args[0].ToLower();
+                switch (typeArg)
+                {
+                    case "metal":
+                    case "m":
+                        doorType = 0;
+                        break;
+                    case "garage":
+                    case "g":
+                        doorType = 1;
+                        break;
+                    case "armored":
+                    case "a":
+                        doorType = 2;
+                        break;
+                    case "armoreddouble":
+                    case "ad":
+                        doorType = 3;
+                        break;
+                    case "double":
+                    case "d":
+                        doorType = 4;
+                        break;
+                    default:
+                        SendReply(player, "<color=#ffcc00>Invalid door type. Use: metal/double/garage/armored/armoreddouble (or m/d/g/a/ad)</color>");
+                        return;
+                }
+            }
+            
+            // Parse gang name for grandma doors (optional)
+            if (args.Length >= 2)
+            {
+                gangName = ResolveGangName(string.Join(" ", args.Skip(1)));
+            }
+            
+            EnterPlacementMode(player, doorType, gangName);
+            
+            string doorName = GetDoorTypeName(doorType);
+            string gangText = string.IsNullOrEmpty(gangName) ? "" : $" for {gangName}";
+            SendReply(player, $"<color=#66ff66>Placement mode: {doorName}{gangText}</color>\n" +
+                "<color=#aaaaaa>Left-click to place doors, right-click to cancel.</color>");
+        }
+
+        /// <summary>
+        /// Quick command to place grandma armored doors for a gang.
+        /// Usage: /placegrandma <gang>
+        /// </summary>
+        [ChatCommand("placegrandma")]
+        private void CmdPlaceGrandma(BasePlayer player, string cmd, string[] args)
+        {
+            if (!permission.UserHasPermission(player.UserIDString, AdminPermission))
+            {
+                SendReply(player, "<color=#ff6666>Permission denied.</color>");
+                return;
+            }
+
+            if (args.Length < 1)
+            {
+                SendReply(player, "<color=#ffcc00>Usage: /placegrandma <gang></color>\n" +
+                    "Example: /placegrandma pirus");
+                return;
+            }
+            
+            string gangName = ResolveGangName(string.Join(" ", args));
+            EnterPlacementMode(player, 2, gangName); // 2 = armored door
+            
+            SendReply(player, $"<color=#66ff66>Placement mode: Armored Grandma Door for {gangName}</color>\n" +
+                "<color=#aaaaaa>Doors will have locked codelock. Left-click to place, right-click to cancel.</color>");
+        }
+
+        /// <summary>
+        /// Cancel placement mode.
+        /// Usage: /cancelplace
+        /// </summary>
+        [ChatCommand("cancelplace")]
+        private void CmdCancelPlace(BasePlayer player, string cmd, string[] args)
+        {
+            if (placementMode.ContainsKey(player.userID))
+            {
+                ExitPlacementMode(player);
+                SendReply(player, "<color=#66ff66>Placement mode cancelled.</color>");
+            }
+            else
+            {
+                SendReply(player, "<color=#ffcc00>You're not in placement mode.</color>");
+            }
         }
 
         #endregion
@@ -1302,16 +2327,140 @@ namespace Oxide.Plugins
 
         #endregion
 
+        #region Sphere Management
+        
+        private void CreateDoorSphere(ulong doorId, DoorInfo info, float radius)
+        {
+            // Remove existing sphere if any
+            RemoveDoorSphere(doorId);
+            
+            var center = info.GetPosition();
+            center.y += 1f; // Position slightly above door
+            
+            var sphere = GameManager.server.CreateEntity(SpherePrefab, center) as SphereEntity;
+            if (sphere == null) return;
+            
+            // SphereEntity.currentRadius is actually the diameter
+            sphere.currentRadius = radius * 2f;
+            sphere.lerpSpeed = 0f;
+            sphere.Spawn();
+            
+            // Set sphere color (semi-transparent blue)
+            var renderer = sphere.GetComponentInChildren<MeshRenderer>();
+            if (renderer != null)
+            {
+                var material = renderer.material;
+                var color = new Color(0.2f, 0.4f, 0.8f, 0.25f);
+                material.color = color;
+            }
+            
+            doorSpheres[doorId] = sphere;
+        }
+        
+        private void RemoveDoorSphere(ulong doorId)
+        {
+            if (doorSpheres.TryGetValue(doorId, out var sphere))
+            {
+                if (sphere != null && !sphere.IsDestroyed)
+                    sphere.Kill();
+                doorSpheres.Remove(doorId);
+            }
+        }
+        
+        private void RestoreAllDoorSpheres()
+        {
+            foreach (var kvp in data.Doors)
+            {
+                if (kvp.Value.HasSphere && kvp.Value.SphereRadius > 0)
+                {
+                    CreateDoorSphere(kvp.Key, kvp.Value, kvp.Value.SphereRadius);
+                }
+            }
+        }
+        
+        /// <summary>
+        /// Check if a position is within any door sphere zone and return the door info
+        /// </summary>
+        private DoorInfo GetDoorSphereAtPosition(Vector3 position)
+        {
+            foreach (var kvp in data.Doors)
+            {
+                if (kvp.Value.HasSphere && kvp.Value.SphereRadius > 0)
+                {
+                    var doorPos = kvp.Value.GetPosition();
+                    float distance = Vector3.Distance(new Vector3(doorPos.x, position.y, doorPos.z), position);
+                    if (distance <= kvp.Value.SphereRadius)
+                    {
+                        return kvp.Value;
+                    }
+                }
+            }
+            return null;
+        }
+        
+        /// <summary>
+        /// API: Check if a position is within any door sphere zone
+        /// </summary>
+        private bool API_IsInDoorSphere(Vector3 position)
+        {
+            return GetDoorSphereAtPosition(position) != null;
+        }
+        
+        /// <summary>
+        /// API: Get the gang associated with a door sphere at position
+        /// </summary>
+        private string API_GetDoorSphereGang(Vector3 position)
+        {
+            var info = GetDoorSphereAtPosition(position);
+            return info?.GrandmaZoneGang;
+        }
+
+        #endregion
+
         #region Door spawn
+        
+        // Helper to get prefab by door type
+        private string GetDoorPrefabByType(int doorType, bool isDoubleDoor)
+        {
+            switch (doorType)
+            {
+                case 1: return GarageDoorPrefab;
+                case 2: return ArmoredDoorPrefab;
+                case 3: return ArmoredDoubleDoorPrefab;
+                default: return isDoubleDoor ? DoubleDoorPrefab : DoorPrefab;
+            }
+        }
+        
+        // Helper to get skin ID by door type
+        private ulong GetDoorSkinByType(int doorType, bool isDoubleDoor)
+        {
+            switch (doorType)
+            {
+                case 1: return GarageDoorSkinId;
+                case 2: return ArmoredDoorSkinId;
+                case 3: return ArmoredDoubleDoorSkinId;
+                default: return isDoubleDoor ? DoubleDoorSkinId : MetalDoorSkinId;
+            }
+        }
 
         private BaseEntity SpawnPermanentDoor(Vector3 pos, Quaternion rot, ulong ownerId, bool isDoubleDoor)
         {
-            var prefab = isDoubleDoor ? DoubleDoorPrefab : DoorPrefab;
+            return SpawnPermanentDoorByType(pos, rot, ownerId, 0, isDoubleDoor);
+        }
+        
+        private BaseEntity SpawnPermanentDoorByType(Vector3 pos, Quaternion rot, ulong ownerId, int doorType, bool isDoubleDoor = false)
+        {
+            var prefab = GetDoorPrefabByType(doorType, isDoubleDoor);
             var ent = GameManager.server.CreateEntity(prefab, pos, rot);
             if (ent == null)
                 return null;
 
             ent.OwnerID = ownerId;
+            
+            // Apply skin if available
+            ulong skinId = GetDoorSkinByType(doorType, isDoubleDoor);
+            if (skinId != 0)
+                ent.skinID = skinId;
 
             var gw = ent.GetComponent<GroundWatch>();
             if (gw != null) gw.enabled = false;
@@ -1323,13 +2472,33 @@ namespace Oxide.Plugins
                 de.decay = null;
 
             ent.Spawn();
+            
+            // Check if door is in a grandma zone
+            string grandmaZoneGang = null;
+            if (GrandmasHouse != null)
+            {
+                var gangName = GrandmasHouse.Call("API_GetGrandmaZoneGang", pos) as string;
+                if (!string.IsNullOrEmpty(gangName))
+                {
+                    grandmaZoneGang = gangName;
+                    // Register the door with the grandma zone
+                    GrandmasHouse.Call("API_RegisterGrandmaDoor", gangName, ent.net.ID.Value);
+                    
+                    // For grandma zone doors, attach a codelock with fixed code
+                    // Gang members can open without code, enemies cannot change it
+                    AttachGrandmaZoneCodeLock(ent, ownerId, GrandmaZoneDoorCode);
+                }
+            }
 
             var info = new DoorInfo
             {
                 OwnerId = ownerId,
                 ClaimedBy = 0,
                 ClaimExpiry = 0,
-                IsDoubleDoor = isDoubleDoor
+                IsDoubleDoor = isDoubleDoor || doorType == 3,
+                DoorType = doorType,
+                GrandmaZoneGang = grandmaZoneGang,
+                LockCode = grandmaZoneGang != null ? GrandmaZoneDoorCode : null
             };
             info.SetPosition(pos);
             info.SetRotation(rot);
@@ -1337,18 +2506,138 @@ namespace Oxide.Plugins
             data.Doors[ent.net.ID.Value] = info;
             SaveData();
 
-            // NOTE: NO lock attached here anymore. Lock is created on /claimdoor (if missing).
+            // NOTE: For non-grandma zone doors, lock is created on /claimdoor (if missing).
+            return ent;
+        }
+        
+        /// <summary>
+        /// Spawn a grandma door with auto-codelock for a specific gang.
+        /// This always attaches a locked codelock regardless of zone detection.
+        /// </summary>
+        private BaseEntity SpawnGrandmaDoorWithCodeLock(Vector3 pos, Quaternion rot, ulong ownerId, int doorType, string gangName)
+        {
+            var prefab = GetDoorPrefabByType(doorType, doorType == 3);
+            bool isDoubleDoor = doorType == 3;
+            var ent = GameManager.server.CreateEntity(prefab, pos, rot);
+            if (ent == null)
+                return null;
+
+            ent.OwnerID = ownerId;
+            
+            // Apply skin if available
+            ulong skinId = GetDoorSkinByType(doorType, isDoubleDoor);
+            if (skinId != 0)
+                ent.skinID = skinId;
+
+            var gw = ent.GetComponent<GroundWatch>();
+            if (gw != null) gw.enabled = false;
+
+            var stab = ent.GetComponent<StabilityEntity>();
+            if (stab != null) stab.grounded = true;
+
+            if (ent is DecayEntity de)
+                de.decay = null;
+
+            ent.Spawn();
+            
+            // Always attach codelock with fixed code for grandma doors
+            AttachGrandmaZoneCodeLock(ent, ownerId, GrandmaZoneDoorCode);
+            
+            // Register with GrandmasHouse if available
+            if (GrandmasHouse != null)
+            {
+                GrandmasHouse.Call("API_RegisterGrandmaDoor", gangName, ent.net.ID.Value);
+            }
+
+            var info = new DoorInfo
+            {
+                OwnerId = ownerId,
+                ClaimedBy = 0,
+                ClaimExpiry = 0,
+                IsDoubleDoor = isDoubleDoor,
+                DoorType = doorType,
+                GrandmaZoneGang = gangName,
+                LockCode = GrandmaZoneDoorCode
+            };
+            info.SetPosition(pos);
+            info.SetRotation(rot);
+
+            data.Doors[ent.net.ID.Value] = info;
+            SaveData();
+
+            return ent;
+        }
+        
+        /// <summary>
+        /// Spawn a double door with auto codelock for grandma zone
+        /// </summary>
+        private BaseEntity SpawnGrandmaDoubleDoorWithCodeLock(Vector3 pos, Quaternion rot, ulong ownerId, int doorType, string gangName)
+        {
+            var prefab = GetDoorPrefabByType(doorType, true); // Always double door
+            bool isDoubleDoor = true;
+            var ent = GameManager.server.CreateEntity(prefab, pos, rot);
+            if (ent == null)
+                return null;
+
+            ent.OwnerID = ownerId;
+            
+            // Apply skin if available
+            ulong skinId = GetDoorSkinByType(doorType, isDoubleDoor);
+            if (skinId != 0)
+                ent.skinID = skinId;
+
+            var gw = ent.GetComponent<GroundWatch>();
+            if (gw != null) gw.enabled = false;
+
+            var stab = ent.GetComponent<StabilityEntity>();
+            if (stab != null) stab.grounded = true;
+
+            if (ent is DecayEntity de)
+                de.decay = null;
+
+            ent.Spawn();
+            
+            // Always attach codelock with fixed code for grandma doors
+            AttachGrandmaZoneCodeLock(ent, ownerId, GrandmaZoneDoorCode);
+            
+            // Register with GrandmasHouse if available
+            if (GrandmasHouse != null)
+            {
+                GrandmasHouse.Call("API_RegisterGrandmaDoor", gangName, ent.net.ID.Value);
+            }
+
+            var info = new DoorInfo
+            {
+                OwnerId = ownerId,
+                ClaimedBy = 0,
+                ClaimExpiry = 0,
+                IsDoubleDoor = isDoubleDoor,
+                DoorType = doorType,
+                GrandmaZoneGang = gangName,
+                LockCode = GrandmaZoneDoorCode
+            };
+            info.SetPosition(pos);
+            info.SetRotation(rot);
+
+            data.Doors[ent.net.ID.Value] = info;
+            SaveData();
+
             return ent;
         }
 
         private BaseEntity SpawnDoorFromInfo(DoorInfo info)
         {
-            var prefab = info.IsDoubleDoor ? DoubleDoorPrefab : DoorPrefab;
+            var prefab = GetDoorPrefabByType(info.DoorType, info.IsDoubleDoor);
             var ent = GameManager.server.CreateEntity(prefab, info.GetPosition(), info.GetRotation());
             if (ent == null)
                 return null;
 
             ent.OwnerID = info.OwnerId;
+            
+            // Apply skin if available
+            ulong skinId = GetDoorSkinByType(info.DoorType, info.IsDoubleDoor);
+            if (skinId != 0)
+                ent.skinID = skinId;
 
             var gw = ent.GetComponent<GroundWatch>();
             if (gw != null) gw.enabled = false;
@@ -1381,12 +2670,17 @@ namespace Oxide.Plugins
 
         private BaseEntity SpawnDoorWithState(Vector3 pos, Quaternion rot, DoorInfo info, CodeLockState state)
         {
-            var prefab = info.IsDoubleDoor ? DoubleDoorPrefab : DoorPrefab;
+            var prefab = GetDoorPrefabByType(info.DoorType, info.IsDoubleDoor);
             var ent = GameManager.server.CreateEntity(prefab, pos, rot);
             if (ent == null)
                 return null;
 
             ent.OwnerID = info.OwnerId;
+            
+            // Apply skin if available
+            ulong skinId = GetDoorSkinByType(info.DoorType, info.IsDoubleDoor);
+            if (skinId != 0)
+                ent.skinID = skinId;
 
             var gw = ent.GetComponent<GroundWatch>();
             if (gw != null) gw.enabled = false;
@@ -1406,7 +2700,15 @@ namespace Oxide.Plugins
                 {
                     lockEnt.SetParent(ent, "lock");
                     lockEnt.OwnerID = info.OwnerId;
+                    
+                    // Apply codelock skin if set
+                    if (CodeLockSkinId != 0)
+                        lockEnt.skinID = CodeLockSkinId;
+                        
                     lockEnt.Spawn();
+                    
+                    // Register the lock with the door's slot system
+                    ent.SetSlot(BaseEntity.Slot.Lock, lockEnt);
 
                     var cl = lockEnt as CodeLock;
                     if (cl != null)
@@ -1433,9 +2735,51 @@ namespace Oxide.Plugins
 
             lockEnt.SetParent(door, "lock");
             lockEnt.OwnerID = ownerId;
+            
+            // Apply skin if set
+            if (CodeLockSkinId != 0)
+                lockEnt.skinID = CodeLockSkinId;
+                
             lockEnt.Spawn();
+            
+            // Register the lock with the door's slot system so it's recognized as attached
+            door.SetSlot(BaseEntity.Slot.Lock, lockEnt);
 
             return lockEnt as CodeLock;
+        }
+        
+        /// <summary>
+        /// Attaches a codelock to a door in a grandma zone with a fixed code.
+        /// Gang members can open the door without entering the code.
+        /// The code cannot be changed by anyone.
+        /// </summary>
+        private CodeLock AttachGrandmaZoneCodeLock(BaseEntity door, ulong ownerId, string fixedCode)
+        {
+            var lockEnt = GameManager.server.CreateEntity(CodeLockPrefab, Vector3.zero, Quaternion.identity);
+            if (lockEnt == null)
+                return null;
+
+            lockEnt.SetParent(door, "lock");
+            lockEnt.OwnerID = ownerId;
+            
+            // Apply skin if set
+            if (CodeLockSkinId != 0)
+                lockEnt.skinID = CodeLockSkinId;
+                
+            lockEnt.Spawn();
+            
+            // Register the lock with the door's slot system so it's recognized as attached
+            door.SetSlot(BaseEntity.Slot.Lock, lockEnt);
+
+            var cl = lockEnt as CodeLock;
+            if (cl != null)
+            {
+                cl.code = fixedCode;
+                cl.SetFlag(BaseEntity.Flags.Locked, true);
+                cl.SendNetworkUpdate();
+            }
+
+            return cl;
         }
 
         #endregion

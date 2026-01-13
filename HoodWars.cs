@@ -40,6 +40,14 @@ namespace Oxide.Plugins
         // DriveBySedanGangs plugin reference for NPC drive-by events
         [PluginReference]
         private Plugin DriveBySedanGangs;
+        
+        // GrandmasHouse plugin reference for grandma zone integration
+        [PluginReference]
+        private Plugin GrandmasHouse;
+        
+        // WelcomeScreen plugin reference for welcome screen integration
+        [PluginReference]
+        private Plugin WelcomeScreen;
 
         private const string PrefabMarker = "assets/prefabs/tools/map/genericradiusmarker.prefab";
         private const string PrefabSphere = "assets/prefabs/visualization/sphere.prefab";
@@ -1391,6 +1399,177 @@ namespace Oxide.Plugins
                 case "testdriveby":
                     TestDriveBy(player);
                     break;
+                    
+                // Grandma commands
+                case "spawngrandma":
+                    SpawnTestGrandma(player);
+                    break;
+                    
+                case "killgrandmas":
+                    KillAllGrandmas(player);
+                    break;
+                    
+                case "spawngaragedoor":
+                    SpawnGarageDoor(player);
+                    break;
+                    
+                case "spawnarmoreddoor":
+                    SpawnArmoredDoor(player);
+                    break;
+                    
+                case "spawnarmoreddoubledoor":
+                    SpawnArmoredDoubleDoor(player);
+                    break;
+                    
+                case "testgrandmadooraccess":
+                    TestGrandmaDoorAccess(player);
+                    break;
+                    
+                case "testc4reward":
+                    TestC4Reward(player);
+                    break;
+                    
+                // ManualDoor commands
+                case "dooredit":
+                    DoorEditFromAdmin(player);
+                    break;
+                    
+                case "grandmadoorinfo":
+                    DoorInfoFromAdmin(player);
+                    break;
+                    
+                case "removedoor":
+                    RemoveDoorFromAdmin(player);
+                    break;
+                    
+                case "grandmaresetdoor":
+                    ResetDoorFromAdmin(player);
+                    break;
+                    
+                case "addsphere":
+                    AddSphereFromAdmin(player);
+                    break;
+                    
+                case "removesphere":
+                    RemoveSphereFromAdmin(player);
+                    break;
+                    
+                case "claimdoor":
+                    ClaimDoorFromAdmin(player);
+                    break;
+                    
+                case "savegrandmalayout":
+                    SaveGrandmaLayoutFromAdmin(player);
+                    break;
+                    
+                case "listlayouts":
+                    ListLayoutsFromAdmin(player);
+                    break;
+                    
+                case "spawnlayout":
+                    SpawnLayoutFromAdmin(player);
+                    break;
+                    
+                case "spawngrandmadoor":
+                    SpawnGrandmaDoorFromAdmin(player);
+                    break;
+                    
+                case "spawngrandmagaragedoor":
+                    SpawnGrandmaGarageDoorFromAdmin(player);
+                    break;
+                    
+                case "togglegrandmaspheres":
+                    ToggleGrandmaSpheresFromAdmin(player);
+                    break;
+                    
+                // Zone setup commands (4 gang zones)
+                case "gzonesetpirus":
+                    SetGrandmaZoneFromAdmin(player, "Pirus");
+                    break;
+                case "gzonesetvagos":
+                    SetGrandmaZoneFromAdmin(player, "Vagos");
+                    break;
+                case "gzonesetsurenos":
+                    SetGrandmaZoneFromAdmin(player, "Surenos");
+                    break;
+                case "gzonesetdisciples":
+                    SetGrandmaZoneFromAdmin(player, "Disciples");
+                    break;
+                case "gzonelist":
+                    ListGrandmaZonesFromAdmin(player);
+                    break;
+                case "gzoneinfo":
+                    ShowGrandmaZoneInfoFromAdmin(player);
+                    break;
+                    
+                // === GDoors tab commands (gang-specific locked doors) ===
+                // Pirus doors
+                case "gdoor_pirus_armored":
+                    SpawnGangLockedDoor(player, "Pirus", "armored");
+                    break;
+                case "gdoor_pirus_armoreddouble":
+                    SpawnGangLockedDoor(player, "Pirus", "armoreddouble");
+                    break;
+                case "gdoor_pirus_garage":
+                    SpawnGangLockedDoor(player, "Pirus", "garage");
+                    break;
+                case "gdoor_pirus_metal":
+                    SpawnGangLockedDoor(player, "Pirus", "metal");
+                    break;
+                case "gdoor_pirus_metaldouble":
+                    SpawnGangLockedDoor(player, "Pirus", "metaldouble");
+                    break;
+                    
+                // Vagos doors
+                case "gdoor_vagos_armored":
+                    SpawnGangLockedDoor(player, "Vagos", "armored");
+                    break;
+                case "gdoor_vagos_armoreddouble":
+                    SpawnGangLockedDoor(player, "Vagos", "armoreddouble");
+                    break;
+                case "gdoor_vagos_garage":
+                    SpawnGangLockedDoor(player, "Vagos", "garage");
+                    break;
+                case "gdoor_vagos_metal":
+                    SpawnGangLockedDoor(player, "Vagos", "metal");
+                    break;
+                case "gdoor_vagos_metaldouble":
+                    SpawnGangLockedDoor(player, "Vagos", "metaldouble");
+                    break;
+                    
+                // Surenos doors
+                case "gdoor_surenos_armored":
+                    SpawnGangLockedDoor(player, "Surenos", "armored");
+                    break;
+                case "gdoor_surenos_armoreddouble":
+                    SpawnGangLockedDoor(player, "Surenos", "armoreddouble");
+                    break;
+                case "gdoor_surenos_garage":
+                    SpawnGangLockedDoor(player, "Surenos", "garage");
+                    break;
+                case "gdoor_surenos_metal":
+                    SpawnGangLockedDoor(player, "Surenos", "metal");
+                    break;
+                case "gdoor_surenos_metaldouble":
+                    SpawnGangLockedDoor(player, "Surenos", "metaldouble");
+                    break;
+                    
+                // Disciples doors
+                case "gdoor_disciples_armored":
+                    SpawnGangLockedDoor(player, "Disciples", "armored");
+                    break;
+                case "gdoor_disciples_armoreddouble":
+                    SpawnGangLockedDoor(player, "Disciples", "armoreddouble");
+                    break;
+                case "gdoor_disciples_garage":
+                    SpawnGangLockedDoor(player, "Disciples", "garage");
+                    break;
+                case "gdoor_disciples_metal":
+                    SpawnGangLockedDoor(player, "Disciples", "metal");
+                    break;
+                case "gdoor_disciples_metaldouble":
+                    SpawnGangLockedDoor(player, "Disciples", "metaldouble");
+                    break;
             }
         }
 
@@ -1570,6 +1749,347 @@ namespace Oxide.Plugins
                 SendReply(player, "<color=#ff4444>ERROR:</color> Failed to spawn drive-by gang. Check console for details.");
             }
         }
+        
+        // Grandma test methods
+        private void SpawnTestGrandma(BasePlayer player)
+        {
+            if (GrandmasHouse == null || !GrandmasHouse.IsLoaded)
+            {
+                SendReply(player, "<color=#ff4444>ERROR:</color> GrandmasHouse plugin is not loaded.");
+                return;
+            }
+            
+            // Use player's gang to spawn a grandma
+            var playerInfo = GetPlayerData(player.userID);
+            string gangName = "Westside Pirus"; // Default
+            if (playerInfo.HomeHood != NeighborhoodType.Neutral)
+            {
+                var hoodConfig = GetNeighborhoodConfig(playerInfo.HomeHood);
+                gangName = hoodConfig?.Name ?? gangName;
+            }
+            
+            // Call GrandmasHouse to spawn a manual grandma at player's location
+            player.SendConsoleCommand("chat.say", "/spawngrandma");
+            SendReply(player, $"<color=#55ff55>GRANDMA TEST:</color> Spawning grandma for {gangName} at your location...");
+        }
+        
+        private void KillAllGrandmas(BasePlayer player)
+        {
+            if (GrandmasHouse == null || !GrandmasHouse.IsLoaded)
+            {
+                SendReply(player, "<color=#ff4444>ERROR:</color> GrandmasHouse plugin is not loaded.");
+                return;
+            }
+            
+            // Call the clear command
+            player.SendConsoleCommand("chat.say", "/cleargrandma");
+            SendReply(player, "<color=#ff4444>GRANDMA TEST:</color> Killed all grandmas (check GrandmasHouse plugin for more control).");
+        }
+        
+        private void SpawnGarageDoor(BasePlayer player)
+        {
+            if (ManualDoor == null || !ManualDoor.IsLoaded)
+            {
+                SendReply(player, "<color=#ff4444>ERROR:</color> ManualDoor plugin is not loaded.");
+                return;
+            }
+            
+            player.SendConsoleCommand("chat.say", "/spawngaragedoor");
+            SendReply(player, "<color=#55ff55>SUCCESS:</color> Spawning garage door at your location...");
+        }
+        
+        private void SpawnArmoredDoor(BasePlayer player)
+        {
+            if (ManualDoor == null || !ManualDoor.IsLoaded)
+            {
+                SendReply(player, "<color=#ff4444>ERROR:</color> ManualDoor plugin is not loaded.");
+                return;
+            }
+            
+            player.SendConsoleCommand("chat.say", "/spawnarmoreddoor");
+            SendReply(player, "<color=#55ff55>SUCCESS:</color> Spawning armored door at your location...");
+        }
+        
+        private void SpawnArmoredDoubleDoor(BasePlayer player)
+        {
+            if (ManualDoor == null || !ManualDoor.IsLoaded)
+            {
+                SendReply(player, "<color=#ff4444>ERROR:</color> ManualDoor plugin is not loaded.");
+                return;
+            }
+            
+            player.SendConsoleCommand("chat.say", "/spawnarmoreddoubledoor");
+            SendReply(player, "<color=#55ff55>SUCCESS:</color> Spawning armored double door at your location...");
+        }
+        
+        private void TestGrandmaDoorAccess(BasePlayer player)
+        {
+            if (GrandmasHouse == null || !GrandmasHouse.IsLoaded)
+            {
+                SendReply(player, "<color=#ff4444>ERROR:</color> GrandmasHouse plugin is not loaded.");
+                return;
+            }
+            
+            var isInZone = GrandmasHouse.Call("API_IsInGrandmaZone", player.transform.position);
+            bool inZone = isInZone != null && (bool)isInZone;
+            
+            if (!inZone)
+            {
+                SendReply(player, "<color=#ffaa00>GRANDMA ACCESS TEST:</color> You are not in any grandma house zone.");
+                return;
+            }
+            
+            var zoneGang = GrandmasHouse.Call("API_GetGrandmaZoneGang", player.transform.position) as string;
+            var playerInfo = GetPlayerData(player.userID);
+            var playerGangConfig = GetNeighborhoodConfig(playerInfo.HomeHood);
+            string playerGang = playerGangConfig?.Name ?? "Neutral";
+            
+            bool canAccess = playerGang == zoneGang;
+            
+            SendReply(player, $"<color=#55ff55>GRANDMA ACCESS TEST:</color>\n" +
+                             $"Zone Gang: <color=#ffaa00>{zoneGang}</color>\n" +
+                             $"Your Gang: <color=#ffaa00>{playerGang}</color>\n" +
+                             $"Door Access: {(canAccess ? "<color=#55ff55>ALLOWED</color>" : "<color=#ff4444>DENIED</color>")}\n" +
+                             $"Can Build: <color=#ff4444>NO</color>\n" +
+                             $"Can Raid: <color=#55ff55>YES</color>");
+        }
+        
+        private void TestC4Reward(BasePlayer player)
+        {
+            var playerInfo = GetPlayerData(player.userID);
+            if (playerInfo.HomeHood == NeighborhoodType.Neutral)
+            {
+                SendReply(player, "<color=#ffaa00>C4 REWARD TEST:</color> You need to join a gang first!");
+                return;
+            }
+            
+            var hoodConfig = GetNeighborhoodConfig(playerInfo.HomeHood);
+            string gangName = hoodConfig?.Name ?? "Unknown";
+            
+            // Give player C4 as a test
+            Item c4 = ItemManager.CreateByName("explosive.timed", 2);
+            if (c4 != null)
+            {
+                player.GiveItem(c4);
+                SendReply(player, $"<color=#55ff55>C4 REWARD TEST:</color> You received 2 C4 (simulating grandma death reward for {gangName}).");
+                Effect.server.Run("assets/prefabs/tools/timed.explosive.charge/effects/impact.prefab", player.transform.position);
+            }
+        }
+        
+        // ManualDoor admin command wrappers
+        private void DoorEditFromAdmin(BasePlayer player)
+        {
+            if (ManualDoor == null || !ManualDoor.IsLoaded)
+            {
+                SendReply(player, "<color=#ff4444>ERROR:</color> ManualDoor plugin is not loaded.");
+                return;
+            }
+            player.SendConsoleCommand("chat.say", "/dooredit");
+        }
+        
+        private void DoorInfoFromAdmin(BasePlayer player)
+        {
+            if (ManualDoor == null || !ManualDoor.IsLoaded)
+            {
+                SendReply(player, "<color=#ff4444>ERROR:</color> ManualDoor plugin is not loaded.");
+                return;
+            }
+            player.SendConsoleCommand("chat.say", "/doorinfo");
+        }
+        
+        private void RemoveDoorFromAdmin(BasePlayer player)
+        {
+            if (ManualDoor == null || !ManualDoor.IsLoaded)
+            {
+                SendReply(player, "<color=#ff4444>ERROR:</color> ManualDoor plugin is not loaded.");
+                return;
+            }
+            player.SendConsoleCommand("chat.say", "/removedoor");
+        }
+        
+        private void ResetDoorFromAdmin(BasePlayer player)
+        {
+            if (ManualDoor == null || !ManualDoor.IsLoaded)
+            {
+                SendReply(player, "<color=#ff4444>ERROR:</color> ManualDoor plugin is not loaded.");
+                return;
+            }
+            player.SendConsoleCommand("chat.say", "/resetdoor");
+        }
+        
+        private void AddSphereFromAdmin(BasePlayer player)
+        {
+            if (ManualDoor == null || !ManualDoor.IsLoaded)
+            {
+                SendReply(player, "<color=#ff4444>ERROR:</color> ManualDoor plugin is not loaded.");
+                return;
+            }
+            player.SendConsoleCommand("chat.say", "/addsphere");
+        }
+        
+        private void RemoveSphereFromAdmin(BasePlayer player)
+        {
+            if (ManualDoor == null || !ManualDoor.IsLoaded)
+            {
+                SendReply(player, "<color=#ff4444>ERROR:</color> ManualDoor plugin is not loaded.");
+                return;
+            }
+            player.SendConsoleCommand("chat.say", "/removesphere");
+        }
+        
+        private void ClaimDoorFromAdmin(BasePlayer player)
+        {
+            if (ManualDoor == null || !ManualDoor.IsLoaded)
+            {
+                SendReply(player, "<color=#ff4444>ERROR:</color> ManualDoor plugin is not loaded.");
+                return;
+            }
+            player.SendConsoleCommand("chat.say", "/claimdoor");
+        }
+        
+        private void SaveGrandmaLayoutFromAdmin(BasePlayer player)
+        {
+            if (ManualDoor == null || !ManualDoor.IsLoaded)
+            {
+                SendReply(player, "<color=#ff4444>ERROR:</color> ManualDoor plugin is not loaded.");
+                return;
+            }
+            
+            // Save ALL grandma doors from all gangs with a timestamped layout name
+            string layoutName = $"grandma_all_{DateTime.Now:yyyyMMdd_HHmm}";
+            player.SendConsoleCommand("chat.say", $"/saveallgrandmalayouts {layoutName}");
+            SendReply(player, $"<color=#55ff55>Saving all grandma doors to layout '{layoutName}'...</color>");
+        }
+        
+        private void ListLayoutsFromAdmin(BasePlayer player)
+        {
+            if (ManualDoor == null || !ManualDoor.IsLoaded)
+            {
+                SendReply(player, "<color=#ff4444>ERROR:</color> ManualDoor plugin is not loaded.");
+                return;
+            }
+            player.SendConsoleCommand("chat.say", "/listlayouts");
+        }
+        
+        private void SpawnLayoutFromAdmin(BasePlayer player)
+        {
+            if (ManualDoor == null || !ManualDoor.IsLoaded)
+            {
+                SendReply(player, "<color=#ff4444>ERROR:</color> ManualDoor plugin is not loaded.");
+                return;
+            }
+            SendReply(player, "<color=#ffcc00>Use chat command: /spawnlayout <name></color>\nView available layouts with /listlayouts first.");
+        }
+        
+        private void SpawnGrandmaDoorFromAdmin(BasePlayer player)
+        {
+            if (ManualDoor == null || !ManualDoor.IsLoaded)
+            {
+                SendReply(player, "<color=#ff4444>ERROR:</color> ManualDoor plugin is not loaded.");
+                return;
+            }
+            
+            // Get player's gang for the door
+            var playerInfo = GetPlayerData(player.userID);
+            string gangName = "Neutral";
+            if (playerInfo.HomeHood != NeighborhoodType.Neutral)
+            {
+                var hoodConfig = GetNeighborhoodConfig(playerInfo.HomeHood);
+                gangName = hoodConfig?.Name ?? "Neutral";
+            }
+            
+            player.SendConsoleCommand("chat.say", $"/spawngrandmadoor {gangName}");
+        }
+        
+        private void SpawnGrandmaGarageDoorFromAdmin(BasePlayer player)
+        {
+            if (ManualDoor == null || !ManualDoor.IsLoaded)
+            {
+                SendReply(player, "<color=#ff4444>ERROR:</color> ManualDoor plugin is not loaded.");
+                return;
+            }
+            
+            // Get player's gang for the door
+            var playerInfo = GetPlayerData(player.userID);
+            string gangName = "Neutral";
+            if (playerInfo.HomeHood != NeighborhoodType.Neutral)
+            {
+                var hoodConfig = GetNeighborhoodConfig(playerInfo.HomeHood);
+                gangName = hoodConfig?.Name ?? "Neutral";
+            }
+            
+            player.SendConsoleCommand("chat.say", $"/spawngrandmagaragedoor {gangName}");
+        }
+        
+        private void ToggleGrandmaSpheresFromAdmin(BasePlayer player)
+        {
+            if (GrandmasHouse == null || !GrandmasHouse.IsLoaded)
+            {
+                SendReply(player, "<color=#ff4444>ERROR:</color> GrandmasHouse plugin is not loaded.");
+                return;
+            }
+            player.SendConsoleCommand("chat.say", "/gtoggleSpheres");
+        }
+        
+        private void SetGrandmaZoneFromAdmin(BasePlayer player, string gangShortName)
+        {
+            if (GrandmasHouse == null || !GrandmasHouse.IsLoaded)
+            {
+                SendReply(player, "<color=#ff4444>ERROR:</color> GrandmasHouse plugin is not loaded.");
+                return;
+            }
+            player.SendConsoleCommand("chat.say", $"/gzoneset {gangShortName}");
+        }
+        
+        private void ListGrandmaZonesFromAdmin(BasePlayer player)
+        {
+            if (GrandmasHouse == null || !GrandmasHouse.IsLoaded)
+            {
+                SendReply(player, "<color=#ff4444>ERROR:</color> GrandmasHouse plugin is not loaded.");
+                return;
+            }
+            player.SendConsoleCommand("chat.say", "/gzone list");
+        }
+        
+        private void ShowGrandmaZoneInfoFromAdmin(BasePlayer player)
+        {
+            if (GrandmasHouse == null || !GrandmasHouse.IsLoaded)
+            {
+                SendReply(player, "<color=#ff4444>ERROR:</color> GrandmasHouse plugin is not loaded.");
+                return;
+            }
+            player.SendConsoleCommand("chat.say", "/gzone info");
+        }
+        
+        // Spawn a locked door for a specific gang (for GDoors tab)
+        private void SpawnGangLockedDoor(BasePlayer player, string gangName, string doorType)
+        {
+            if (ManualDoor == null || !ManualDoor.IsLoaded)
+            {
+                SendReply(player, "<color=#ff4444>ERROR:</color> ManualDoor plugin is not loaded.");
+                return;
+            }
+            
+            // Use the appropriate command based on door type
+            switch (doorType)
+            {
+                case "armored":
+                    player.SendConsoleCommand("chat.say", $"/spawngrandmadoor {gangName}");
+                    break;
+                case "armoreddouble":
+                    player.SendConsoleCommand("chat.say", $"/spawngrandmaarmoreddoubledoor {gangName}");
+                    break;
+                case "garage":
+                    player.SendConsoleCommand("chat.say", $"/spawngrandmagaragedoor {gangName}");
+                    break;
+                case "metal":
+                    player.SendConsoleCommand("chat.say", $"/spawngrandmametaldoor {gangName}");
+                    break;
+                case "metaldouble":
+                    player.SendConsoleCommand("chat.say", $"/spawngrandmametaldoubledoor {gangName}");
+                    break;
+            }
+        }
 
         // Admin command to set the TC they're looking at as the HQ TC for a gang
         private void SetHQTCFromLook(BasePlayer player, int gangIndex)
@@ -1685,12 +2205,14 @@ namespace Oxide.Plugins
             }, "Header");
 
             // Navigation tabs
-            AddNavTab(elements, "main", "Main", "0.01 0.82", "0.12 0.88", section == "main");
-            AddNavTab(elements, "hq", "HQ", "0.13 0.82", "0.24 0.88", section == "hq");
-            AddNavTab(elements, "neighborhoods", "Hoods", "0.25 0.82", "0.38 0.88", section == "neighborhoods");
-            AddNavTab(elements, "hotelitems", "Hotel", "0.39 0.82", "0.50 0.88", section == "hotelitems");
-            AddNavTab(elements, "general", "General", "0.51 0.82", "0.64 0.88", section == "general");
-            AddNavTab(elements, "testing", "Testing", "0.65 0.82", "0.78 0.88", section == "testing");
+            AddNavTab(elements, "main", "Main", "0.01 0.82", "0.085 0.88", section == "main");
+            AddNavTab(elements, "hq", "HQ", "0.09 0.82", "0.16 0.88", section == "hq");
+            AddNavTab(elements, "neighborhoods", "Hoods", "0.165 0.82", "0.255 0.88", section == "neighborhoods");
+            AddNavTab(elements, "hotelitems", "Hotel", "0.26 0.82", "0.35 0.88", section == "hotelitems");
+            AddNavTab(elements, "general", "General", "0.355 0.82", "0.455 0.88", section == "general");
+            AddNavTab(elements, "testing", "Testing", "0.46 0.82", "0.555 0.88", section == "testing");
+            AddNavTab(elements, "grandma", "Grandma", "0.56 0.82", "0.67 0.88", section == "grandma");
+            AddNavTab(elements, "gdoors", "GDoors", "0.675 0.82", "0.78 0.88", section == "gdoors");
 
             // Content area
             elements.Add(new CuiPanel
@@ -1718,6 +2240,12 @@ namespace Oxide.Plugins
                     break;
                 case "testing":
                     AddTestingContent(elements, player);
+                    break;
+                case "grandma":
+                    AddGrandmaContent(elements, player);
+                    break;
+                case "gdoors":
+                    AddGDoorsContent(elements, player);
                     break;
             }
 
@@ -2208,6 +2736,521 @@ namespace Oxide.Plugins
                 RectTransform = { AnchorMin = "0.66 0.05", AnchorMax = "0.98 0.13" },
                 Text = { Text = driveByLoaded ? "Test Drive-By" : "DriveBy N/A", FontSize = 9, Align = TextAnchor.MiddleCenter }
             }, "Content");
+            
+            // WelcomeScreen integration note
+            bool welcomeScreenLoaded = WelcomeScreen != null && WelcomeScreen.IsLoaded;
+            string welcomeStatus = welcomeScreenLoaded ? "<color=#55ff55>LOADED</color>" : "<color=#ff4444>NOT LOADED</color>";
+            elements.Add(new CuiLabel
+            {
+                Text = { Text = $"WelcomeScreen: {welcomeStatus} | Use /welcome to test", 
+                        FontSize = 10, Align = TextAnchor.MiddleCenter, Color = "0.6 0.6 0.6 1" },
+                RectTransform = { AnchorMin = "0.02 0.00", AnchorMax = "0.98 0.04" }
+            }, "Content");
+        }
+        
+        private void AddGrandmaContent(CuiElementContainer elements, BasePlayer player)
+        {
+            bool grandmaLoaded = GrandmasHouse != null && GrandmasHouse.IsLoaded;
+            bool manualDoorLoaded = ManualDoor != null && ManualDoor.IsLoaded;
+            
+            elements.Add(new CuiLabel
+            {
+                Text = { Text = "Grandma's House Management", FontSize = 16, Align = TextAnchor.MiddleCenter, Color = "0.9 0.7 0.4 1" },
+                RectTransform = { AnchorMin = "0 0.88", AnchorMax = "1 0.98" }
+            }, "Content");
+
+            // Plugin status
+            elements.Add(new CuiLabel
+            {
+                Text = { Text = $"GrandmasHouse: {(grandmaLoaded ? "<color=#55ff55>OK</color>" : "<color=#ff4444>N/A</color>")} | ManualDoor: {(manualDoorLoaded ? "<color=#55ff55>OK</color>" : "<color=#ff4444>N/A</color>")}", 
+                        FontSize = 11, Align = TextAnchor.MiddleCenter, Color = "0.8 0.8 0.8 1" },
+                RectTransform = { AnchorMin = "0.02 0.82", AnchorMax = "0.98 0.88" }
+            }, "Content");
+
+            float y = 0.80f;
+            float rowHeight = 0.08f;
+            float spacing = 0.01f;
+
+            // Check if player is in a grandma zone
+            string grandmaZoneGang = "None";
+            bool inGrandmaZone = false;
+            if (grandmaLoaded)
+            {
+                var result = GrandmasHouse.Call("API_IsInGrandmaZone", player.transform.position);
+                inGrandmaZone = result != null && (bool)result;
+                grandmaZoneGang = GrandmasHouse.Call("API_GetGrandmaZoneGang", player.transform.position) as string ?? "None";
+            }
+            
+            elements.Add(new CuiLabel
+            {
+                Text = { Text = $"Zone: {(inGrandmaZone ? $"<color=#ffaa00>{grandmaZoneGang}</color>" : "Not in zone")}", 
+                        FontSize = 10, Align = TextAnchor.MiddleCenter, Color = "0.8 0.8 0.8 1" },
+                RectTransform = { AnchorMin = "0.02 0.76", AnchorMax = "0.98 0.82" }
+            }, "Content");
+
+            y = 0.74f;
+
+            // === Row 1: Zone Setup (4 gang zones) ===
+            elements.Add(new CuiButton
+            {
+                Button = { Color = grandmaLoaded ? "0.6 0.2 0.2 1" : "0.4 0.4 0.4 1", Command = "hoodwars.admin gzonesetpirus" },
+                RectTransform = { AnchorMin = $"0.02 {y - rowHeight}", AnchorMax = $"0.24 {y}" },
+                Text = { Text = "Set Pirus", FontSize = 8, Align = TextAnchor.MiddleCenter }
+            }, "Content");
+
+            elements.Add(new CuiButton
+            {
+                Button = { Color = grandmaLoaded ? "0.6 0.6 0.2 1" : "0.4 0.4 0.4 1", Command = "hoodwars.admin gzonesetvagos" },
+                RectTransform = { AnchorMin = $"0.26 {y - rowHeight}", AnchorMax = $"0.48 {y}" },
+                Text = { Text = "Set Vagos", FontSize = 8, Align = TextAnchor.MiddleCenter }
+            }, "Content");
+
+            elements.Add(new CuiButton
+            {
+                Button = { Color = grandmaLoaded ? "0.2 0.2 0.6 1" : "0.4 0.4 0.4 1", Command = "hoodwars.admin gzonesetsurenos" },
+                RectTransform = { AnchorMin = $"0.52 {y - rowHeight}", AnchorMax = $"0.74 {y}" },
+                Text = { Text = "Set Sureños", FontSize = 8, Align = TextAnchor.MiddleCenter }
+            }, "Content");
+
+            elements.Add(new CuiButton
+            {
+                Button = { Color = grandmaLoaded ? "0.3 0.3 0.3 1" : "0.4 0.4 0.4 1", Command = "hoodwars.admin gzonesetdisciples" },
+                RectTransform = { AnchorMin = $"0.76 {y - rowHeight}", AnchorMax = $"0.98 {y}" },
+                Text = { Text = "Set Disciples", FontSize = 8, Align = TextAnchor.MiddleCenter }
+            }, "Content");
+
+            y -= rowHeight + spacing;
+
+            // === Row 2: Zone Management ===
+            elements.Add(new CuiButton
+            {
+                Button = { Color = grandmaLoaded ? "0.4 0.5 0.4 1" : "0.4 0.4 0.4 1", Command = "hoodwars.admin gzonelist" },
+                RectTransform = { AnchorMin = $"0.02 {y - rowHeight}", AnchorMax = $"0.32 {y}" },
+                Text = { Text = "List Zones", FontSize = 9, Align = TextAnchor.MiddleCenter }
+            }, "Content");
+
+            elements.Add(new CuiButton
+            {
+                Button = { Color = grandmaLoaded ? "0.3 0.4 0.5 1" : "0.4 0.4 0.4 1", Command = "hoodwars.admin gzoneinfo" },
+                RectTransform = { AnchorMin = $"0.34 {y - rowHeight}", AnchorMax = $"0.64 {y}" },
+                Text = { Text = "Zone Info", FontSize = 9, Align = TextAnchor.MiddleCenter }
+            }, "Content");
+
+            elements.Add(new CuiButton
+            {
+                Button = { Color = grandmaLoaded ? "0.5 0.4 0.3 1" : "0.4 0.4 0.4 1", Command = "hoodwars.admin togglegrandmaspheres" },
+                RectTransform = { AnchorMin = $"0.66 {y - rowHeight}", AnchorMax = $"0.98 {y}" },
+                Text = { Text = "Toggle Spheres", FontSize = 9, Align = TextAnchor.MiddleCenter }
+            }, "Content");
+
+            y -= rowHeight + spacing;
+
+            // === Row 3: Grandma Spawn/Kill ===
+            elements.Add(new CuiButton
+            {
+                Button = { Color = grandmaLoaded ? "0.5 0.4 0.2 1" : "0.4 0.4 0.4 1", Command = "hoodwars.admin spawngrandma" },
+                RectTransform = { AnchorMin = $"0.02 {y - rowHeight}", AnchorMax = $"0.32 {y}" },
+                Text = { Text = "Spawn Grandma", FontSize = 9, Align = TextAnchor.MiddleCenter }
+            }, "Content");
+
+            elements.Add(new CuiButton
+            {
+                Button = { Color = grandmaLoaded ? "0.6 0.2 0.2 1" : "0.4 0.4 0.4 1", Command = "hoodwars.admin killgrandmas" },
+                RectTransform = { AnchorMin = $"0.34 {y - rowHeight}", AnchorMax = $"0.64 {y}" },
+                Text = { Text = "Kill Grandmas", FontSize = 9, Align = TextAnchor.MiddleCenter }
+            }, "Content");
+
+            elements.Add(new CuiButton
+            {
+                Button = { Color = "0.3 0.4 0.5 1", Command = "hoodwars.admin testgrandmadooraccess" },
+                RectTransform = { AnchorMin = $"0.66 {y - rowHeight}", AnchorMax = $"0.98 {y}" },
+                Text = { Text = "Test Access", FontSize = 9, Align = TextAnchor.MiddleCenter }
+            }, "Content");
+
+            y -= rowHeight + spacing;
+
+            // === Row 4: Grandma Door Spawning (with auto codelock) ===
+            elements.Add(new CuiButton
+            {
+                Button = { Color = manualDoorLoaded ? "0.6 0.5 0.2 1" : "0.4 0.4 0.4 1", Command = "hoodwars.admin spawngrandmadoor" },
+                RectTransform = { AnchorMin = $"0.02 {y - rowHeight}", AnchorMax = $"0.48 {y}" },
+                Text = { Text = "Grandma Door (Locked)", FontSize = 9, Align = TextAnchor.MiddleCenter }
+            }, "Content");
+
+            elements.Add(new CuiButton
+            {
+                Button = { Color = manualDoorLoaded ? "0.5 0.5 0.2 1" : "0.4 0.4 0.4 1", Command = "hoodwars.admin spawngrandmagaragedoor" },
+                RectTransform = { AnchorMin = $"0.52 {y - rowHeight}", AnchorMax = $"0.98 {y}" },
+                Text = { Text = "Grandma Garage (Locked)", FontSize = 9, Align = TextAnchor.MiddleCenter }
+            }, "Content");
+
+            y -= rowHeight + spacing;
+
+            // === Row 5: Regular Door Spawning ===
+            elements.Add(new CuiButton
+            {
+                Button = { Color = manualDoorLoaded ? "0.3 0.5 0.3 1" : "0.4 0.4 0.4 1", Command = "hoodwars.admin spawngaragedoor" },
+                RectTransform = { AnchorMin = $"0.02 {y - rowHeight}", AnchorMax = $"0.32 {y}" },
+                Text = { Text = "Garage Door", FontSize = 9, Align = TextAnchor.MiddleCenter }
+            }, "Content");
+
+            elements.Add(new CuiButton
+            {
+                Button = { Color = manualDoorLoaded ? "0.4 0.4 0.5 1" : "0.4 0.4 0.4 1", Command = "hoodwars.admin spawnarmoreddoor" },
+                RectTransform = { AnchorMin = $"0.34 {y - rowHeight}", AnchorMax = $"0.64 {y}" },
+                Text = { Text = "Armored Door", FontSize = 9, Align = TextAnchor.MiddleCenter }
+            }, "Content");
+
+            elements.Add(new CuiButton
+            {
+                Button = { Color = manualDoorLoaded ? "0.4 0.5 0.5 1" : "0.4 0.4 0.4 1", Command = "hoodwars.admin spawnarmoreddoubledoor" },
+                RectTransform = { AnchorMin = $"0.66 {y - rowHeight}", AnchorMax = $"0.98 {y}" },
+                Text = { Text = "Armored Double", FontSize = 9, Align = TextAnchor.MiddleCenter }
+            }, "Content");
+
+            y -= rowHeight + spacing;
+
+            // === Row 6: Door Management ===
+            elements.Add(new CuiButton
+            {
+                Button = { Color = manualDoorLoaded ? "0.3 0.4 0.6 1" : "0.4 0.4 0.4 1", Command = "hoodwars.admin dooredit" },
+                RectTransform = { AnchorMin = $"0.02 {y - rowHeight}", AnchorMax = $"0.32 {y}" },
+                Text = { Text = "Edit Door", FontSize = 9, Align = TextAnchor.MiddleCenter }
+            }, "Content");
+
+            elements.Add(new CuiButton
+            {
+                Button = { Color = manualDoorLoaded ? "0.4 0.5 0.4 1" : "0.4 0.4 0.4 1", Command = "hoodwars.admin grandmadoorinfo" },
+                RectTransform = { AnchorMin = $"0.34 {y - rowHeight}", AnchorMax = $"0.64 {y}" },
+                Text = { Text = "Door Info", FontSize = 9, Align = TextAnchor.MiddleCenter }
+            }, "Content");
+
+            elements.Add(new CuiButton
+            {
+                Button = { Color = manualDoorLoaded ? "0.6 0.3 0.3 1" : "0.4 0.4 0.4 1", Command = "hoodwars.admin removedoor" },
+                RectTransform = { AnchorMin = $"0.66 {y - rowHeight}", AnchorMax = $"0.98 {y}" },
+                Text = { Text = "Remove Door", FontSize = 9, Align = TextAnchor.MiddleCenter }
+            }, "Content");
+
+            y -= rowHeight + spacing;
+
+            // === Row 4: Sphere & Reset ===
+            elements.Add(new CuiButton
+            {
+                Button = { Color = manualDoorLoaded ? "0.2 0.5 0.6 1" : "0.4 0.4 0.4 1", Command = "hoodwars.admin addsphere" },
+                RectTransform = { AnchorMin = $"0.02 {y - rowHeight}", AnchorMax = $"0.32 {y}" },
+                Text = { Text = "Add Sphere", FontSize = 9, Align = TextAnchor.MiddleCenter }
+            }, "Content");
+
+            elements.Add(new CuiButton
+            {
+                Button = { Color = manualDoorLoaded ? "0.5 0.3 0.4 1" : "0.4 0.4 0.4 1", Command = "hoodwars.admin removesphere" },
+                RectTransform = { AnchorMin = $"0.34 {y - rowHeight}", AnchorMax = $"0.64 {y}" },
+                Text = { Text = "Remove Sphere", FontSize = 9, Align = TextAnchor.MiddleCenter }
+            }, "Content");
+
+            elements.Add(new CuiButton
+            {
+                Button = { Color = manualDoorLoaded ? "0.5 0.4 0.2 1" : "0.4 0.4 0.4 1", Command = "hoodwars.admin grandmaresetdoor" },
+                RectTransform = { AnchorMin = $"0.66 {y - rowHeight}", AnchorMax = $"0.98 {y}" },
+                Text = { Text = "Reset Door", FontSize = 9, Align = TextAnchor.MiddleCenter }
+            }, "Content");
+
+            y -= rowHeight + spacing;
+
+            // === Row 5: C4 Test & Claim ===
+            elements.Add(new CuiButton
+            {
+                Button = { Color = "0.6 0.4 0.2 1", Command = "hoodwars.admin testc4reward" },
+                RectTransform = { AnchorMin = $"0.02 {y - rowHeight}", AnchorMax = $"0.48 {y}" },
+                Text = { Text = "Test C4 Reward", FontSize = 9, Align = TextAnchor.MiddleCenter }
+            }, "Content");
+
+            elements.Add(new CuiButton
+            {
+                Button = { Color = manualDoorLoaded ? "0.3 0.5 0.5 1" : "0.4 0.4 0.4 1", Command = "hoodwars.admin claimdoor" },
+                RectTransform = { AnchorMin = $"0.52 {y - rowHeight}", AnchorMax = $"0.98 {y}" },
+                Text = { Text = "Claim Door", FontSize = 9, Align = TextAnchor.MiddleCenter }
+            }, "Content");
+
+            y -= rowHeight + spacing;
+
+            // === Row 6: Layout Commands ===
+            elements.Add(new CuiButton
+            {
+                Button = { Color = manualDoorLoaded ? "0.4 0.5 0.3 1" : "0.4 0.4 0.4 1", Command = "hoodwars.admin savegrandmalayout" },
+                RectTransform = { AnchorMin = $"0.02 {y - rowHeight}", AnchorMax = $"0.32 {y}" },
+                Text = { Text = "Save Layout", FontSize = 9, Align = TextAnchor.MiddleCenter }
+            }, "Content");
+
+            elements.Add(new CuiButton
+            {
+                Button = { Color = manualDoorLoaded ? "0.3 0.4 0.5 1" : "0.4 0.4 0.4 1", Command = "hoodwars.admin listlayouts" },
+                RectTransform = { AnchorMin = $"0.34 {y - rowHeight}", AnchorMax = $"0.64 {y}" },
+                Text = { Text = "List Layouts", FontSize = 9, Align = TextAnchor.MiddleCenter }
+            }, "Content");
+
+            elements.Add(new CuiButton
+            {
+                Button = { Color = manualDoorLoaded ? "0.5 0.4 0.3 1" : "0.4 0.4 0.4 1", Command = "hoodwars.admin spawnlayout" },
+                RectTransform = { AnchorMin = $"0.66 {y - rowHeight}", AnchorMax = $"0.98 {y}" },
+                Text = { Text = "Spawn Layout", FontSize = 9, Align = TextAnchor.MiddleCenter }
+            }, "Content");
+
+            // Info text at bottom
+            elements.Add(new CuiLabel
+            {
+                Text = { Text = "Commands: /saveallgrandmalayouts <name> (saves all gangs)\n" +
+                               "/savegrandmalayout <name> <gang> (saves one gang: Pirus, Vagos, Surenos, Disciples)\n" +
+                               "/spawngrandma <gang>, /killgrandma [gang], /spawnlayout <name>",
+                        FontSize = 9, Align = TextAnchor.MiddleLeft, Color = "0.6 0.6 0.6 1" },
+                RectTransform = { AnchorMin = "0.02 0.02", AnchorMax = "0.98 0.14" }
+            }, "Content");
+        }
+
+        private void AddGDoorsContent(CuiElementContainer elements, BasePlayer player)
+        {
+            bool manualDoorLoaded = ManualDoor != null && ManualDoor.IsLoaded;
+            
+            elements.Add(new CuiLabel
+            {
+                Text = { Text = "Grandma Locked Doors - All Gangs", FontSize = 16, Align = TextAnchor.MiddleCenter, Color = "0.9 0.7 0.4 1" },
+                RectTransform = { AnchorMin = "0 0.90", AnchorMax = "1 0.98" }
+            }, "Content");
+
+            // Plugin status
+            elements.Add(new CuiLabel
+            {
+                Text = { Text = $"ManualDoor: {(manualDoorLoaded ? "<color=#55ff55>OK</color>" : "<color=#ff4444>N/A</color>")} | Spawn locked doors for any gang's grandma house", 
+                        FontSize = 10, Align = TextAnchor.MiddleCenter, Color = "0.8 0.8 0.8 1" },
+                RectTransform = { AnchorMin = "0.02 0.84", AnchorMax = "0.98 0.90" }
+            }, "Content");
+
+            float y = 0.82f;
+            float rowHeight = 0.075f;
+            float spacing = 0.01f;
+            
+            // Gang colors
+            string pirusColor = "0.6 0.2 0.2 1";      // Red
+            string vagosColor = "0.6 0.6 0.2 1";      // Yellow
+            string surenosColor = "0.2 0.2 0.6 1";    // Blue
+            string disciplesColor = "0.3 0.3 0.3 1"; // Gray
+            string disabledColor = "0.4 0.4 0.4 1";
+
+            // === PIRUS ROW ===
+            elements.Add(new CuiLabel
+            {
+                Text = { Text = "PIRUS", FontSize = 10, Align = TextAnchor.MiddleLeft, Color = "0.9 0.4 0.4 1" },
+                RectTransform = { AnchorMin = $"0.02 {y - rowHeight}", AnchorMax = $"0.12 {y}" }
+            }, "Content");
+            
+            elements.Add(new CuiButton
+            {
+                Button = { Color = manualDoorLoaded ? pirusColor : disabledColor, Command = "hoodwars.admin gdoor_pirus_armored" },
+                RectTransform = { AnchorMin = $"0.13 {y - rowHeight}", AnchorMax = $"0.29 {y}" },
+                Text = { Text = "Armored", FontSize = 8, Align = TextAnchor.MiddleCenter }
+            }, "Content");
+            
+            elements.Add(new CuiButton
+            {
+                Button = { Color = manualDoorLoaded ? pirusColor : disabledColor, Command = "hoodwars.admin gdoor_pirus_armoreddouble" },
+                RectTransform = { AnchorMin = $"0.30 {y - rowHeight}", AnchorMax = $"0.46 {y}" },
+                Text = { Text = "Armor Dbl", FontSize = 8, Align = TextAnchor.MiddleCenter }
+            }, "Content");
+            
+            elements.Add(new CuiButton
+            {
+                Button = { Color = manualDoorLoaded ? pirusColor : disabledColor, Command = "hoodwars.admin gdoor_pirus_garage" },
+                RectTransform = { AnchorMin = $"0.47 {y - rowHeight}", AnchorMax = $"0.63 {y}" },
+                Text = { Text = "Garage", FontSize = 8, Align = TextAnchor.MiddleCenter }
+            }, "Content");
+            
+            elements.Add(new CuiButton
+            {
+                Button = { Color = manualDoorLoaded ? pirusColor : disabledColor, Command = "hoodwars.admin gdoor_pirus_metal" },
+                RectTransform = { AnchorMin = $"0.64 {y - rowHeight}", AnchorMax = $"0.80 {y}" },
+                Text = { Text = "Metal", FontSize = 8, Align = TextAnchor.MiddleCenter }
+            }, "Content");
+            
+            elements.Add(new CuiButton
+            {
+                Button = { Color = manualDoorLoaded ? pirusColor : disabledColor, Command = "hoodwars.admin gdoor_pirus_metaldouble" },
+                RectTransform = { AnchorMin = $"0.81 {y - rowHeight}", AnchorMax = $"0.98 {y}" },
+                Text = { Text = "Metal Dbl", FontSize = 8, Align = TextAnchor.MiddleCenter }
+            }, "Content");
+
+            y -= rowHeight + spacing;
+
+            // === VAGOS ROW ===
+            elements.Add(new CuiLabel
+            {
+                Text = { Text = "VAGOS", FontSize = 10, Align = TextAnchor.MiddleLeft, Color = "0.9 0.9 0.4 1" },
+                RectTransform = { AnchorMin = $"0.02 {y - rowHeight}", AnchorMax = $"0.12 {y}" }
+            }, "Content");
+            
+            elements.Add(new CuiButton
+            {
+                Button = { Color = manualDoorLoaded ? vagosColor : disabledColor, Command = "hoodwars.admin gdoor_vagos_armored" },
+                RectTransform = { AnchorMin = $"0.13 {y - rowHeight}", AnchorMax = $"0.29 {y}" },
+                Text = { Text = "Armored", FontSize = 8, Align = TextAnchor.MiddleCenter }
+            }, "Content");
+            
+            elements.Add(new CuiButton
+            {
+                Button = { Color = manualDoorLoaded ? vagosColor : disabledColor, Command = "hoodwars.admin gdoor_vagos_armoreddouble" },
+                RectTransform = { AnchorMin = $"0.30 {y - rowHeight}", AnchorMax = $"0.46 {y}" },
+                Text = { Text = "Armor Dbl", FontSize = 8, Align = TextAnchor.MiddleCenter }
+            }, "Content");
+            
+            elements.Add(new CuiButton
+            {
+                Button = { Color = manualDoorLoaded ? vagosColor : disabledColor, Command = "hoodwars.admin gdoor_vagos_garage" },
+                RectTransform = { AnchorMin = $"0.47 {y - rowHeight}", AnchorMax = $"0.63 {y}" },
+                Text = { Text = "Garage", FontSize = 8, Align = TextAnchor.MiddleCenter }
+            }, "Content");
+            
+            elements.Add(new CuiButton
+            {
+                Button = { Color = manualDoorLoaded ? vagosColor : disabledColor, Command = "hoodwars.admin gdoor_vagos_metal" },
+                RectTransform = { AnchorMin = $"0.64 {y - rowHeight}", AnchorMax = $"0.80 {y}" },
+                Text = { Text = "Metal", FontSize = 8, Align = TextAnchor.MiddleCenter }
+            }, "Content");
+            
+            elements.Add(new CuiButton
+            {
+                Button = { Color = manualDoorLoaded ? vagosColor : disabledColor, Command = "hoodwars.admin gdoor_vagos_metaldouble" },
+                RectTransform = { AnchorMin = $"0.81 {y - rowHeight}", AnchorMax = $"0.98 {y}" },
+                Text = { Text = "Metal Dbl", FontSize = 8, Align = TextAnchor.MiddleCenter }
+            }, "Content");
+
+            y -= rowHeight + spacing;
+
+            // === SURENOS ROW ===
+            elements.Add(new CuiLabel
+            {
+                Text = { Text = "SUREÑOS", FontSize = 10, Align = TextAnchor.MiddleLeft, Color = "0.4 0.4 0.9 1" },
+                RectTransform = { AnchorMin = $"0.02 {y - rowHeight}", AnchorMax = $"0.12 {y}" }
+            }, "Content");
+            
+            elements.Add(new CuiButton
+            {
+                Button = { Color = manualDoorLoaded ? surenosColor : disabledColor, Command = "hoodwars.admin gdoor_surenos_armored" },
+                RectTransform = { AnchorMin = $"0.13 {y - rowHeight}", AnchorMax = $"0.29 {y}" },
+                Text = { Text = "Armored", FontSize = 8, Align = TextAnchor.MiddleCenter }
+            }, "Content");
+            
+            elements.Add(new CuiButton
+            {
+                Button = { Color = manualDoorLoaded ? surenosColor : disabledColor, Command = "hoodwars.admin gdoor_surenos_armoreddouble" },
+                RectTransform = { AnchorMin = $"0.30 {y - rowHeight}", AnchorMax = $"0.46 {y}" },
+                Text = { Text = "Armor Dbl", FontSize = 8, Align = TextAnchor.MiddleCenter }
+            }, "Content");
+            
+            elements.Add(new CuiButton
+            {
+                Button = { Color = manualDoorLoaded ? surenosColor : disabledColor, Command = "hoodwars.admin gdoor_surenos_garage" },
+                RectTransform = { AnchorMin = $"0.47 {y - rowHeight}", AnchorMax = $"0.63 {y}" },
+                Text = { Text = "Garage", FontSize = 8, Align = TextAnchor.MiddleCenter }
+            }, "Content");
+            
+            elements.Add(new CuiButton
+            {
+                Button = { Color = manualDoorLoaded ? surenosColor : disabledColor, Command = "hoodwars.admin gdoor_surenos_metal" },
+                RectTransform = { AnchorMin = $"0.64 {y - rowHeight}", AnchorMax = $"0.80 {y}" },
+                Text = { Text = "Metal", FontSize = 8, Align = TextAnchor.MiddleCenter }
+            }, "Content");
+            
+            elements.Add(new CuiButton
+            {
+                Button = { Color = manualDoorLoaded ? surenosColor : disabledColor, Command = "hoodwars.admin gdoor_surenos_metaldouble" },
+                RectTransform = { AnchorMin = $"0.81 {y - rowHeight}", AnchorMax = $"0.98 {y}" },
+                Text = { Text = "Metal Dbl", FontSize = 8, Align = TextAnchor.MiddleCenter }
+            }, "Content");
+
+            y -= rowHeight + spacing;
+
+            // === DISCIPLES ROW ===
+            elements.Add(new CuiLabel
+            {
+                Text = { Text = "DISCIPLES", FontSize = 10, Align = TextAnchor.MiddleLeft, Color = "0.6 0.6 0.6 1" },
+                RectTransform = { AnchorMin = $"0.02 {y - rowHeight}", AnchorMax = $"0.12 {y}" }
+            }, "Content");
+            
+            elements.Add(new CuiButton
+            {
+                Button = { Color = manualDoorLoaded ? disciplesColor : disabledColor, Command = "hoodwars.admin gdoor_disciples_armored" },
+                RectTransform = { AnchorMin = $"0.13 {y - rowHeight}", AnchorMax = $"0.29 {y}" },
+                Text = { Text = "Armored", FontSize = 8, Align = TextAnchor.MiddleCenter }
+            }, "Content");
+            
+            elements.Add(new CuiButton
+            {
+                Button = { Color = manualDoorLoaded ? disciplesColor : disabledColor, Command = "hoodwars.admin gdoor_disciples_armoreddouble" },
+                RectTransform = { AnchorMin = $"0.30 {y - rowHeight}", AnchorMax = $"0.46 {y}" },
+                Text = { Text = "Armor Dbl", FontSize = 8, Align = TextAnchor.MiddleCenter }
+            }, "Content");
+            
+            elements.Add(new CuiButton
+            {
+                Button = { Color = manualDoorLoaded ? disciplesColor : disabledColor, Command = "hoodwars.admin gdoor_disciples_garage" },
+                RectTransform = { AnchorMin = $"0.47 {y - rowHeight}", AnchorMax = $"0.63 {y}" },
+                Text = { Text = "Garage", FontSize = 8, Align = TextAnchor.MiddleCenter }
+            }, "Content");
+            
+            elements.Add(new CuiButton
+            {
+                Button = { Color = manualDoorLoaded ? disciplesColor : disabledColor, Command = "hoodwars.admin gdoor_disciples_metal" },
+                RectTransform = { AnchorMin = $"0.64 {y - rowHeight}", AnchorMax = $"0.80 {y}" },
+                Text = { Text = "Metal", FontSize = 8, Align = TextAnchor.MiddleCenter }
+            }, "Content");
+            
+            elements.Add(new CuiButton
+            {
+                Button = { Color = manualDoorLoaded ? disciplesColor : disabledColor, Command = "hoodwars.admin gdoor_disciples_metaldouble" },
+                RectTransform = { AnchorMin = $"0.81 {y - rowHeight}", AnchorMax = $"0.98 {y}" },
+                Text = { Text = "Metal Dbl", FontSize = 8, Align = TextAnchor.MiddleCenter }
+            }, "Content");
+
+            y -= rowHeight + spacing * 2;
+
+            // === Door management row ===
+            elements.Add(new CuiButton
+            {
+                Button = { Color = manualDoorLoaded ? "0.3 0.4 0.6 1" : disabledColor, Command = "hoodwars.admin dooredit" },
+                RectTransform = { AnchorMin = $"0.02 {y - rowHeight}", AnchorMax = $"0.24 {y}" },
+                Text = { Text = "Edit Door", FontSize = 9, Align = TextAnchor.MiddleCenter }
+            }, "Content");
+            
+            elements.Add(new CuiButton
+            {
+                Button = { Color = manualDoorLoaded ? "0.4 0.5 0.4 1" : disabledColor, Command = "hoodwars.admin grandmadoorinfo" },
+                RectTransform = { AnchorMin = $"0.26 {y - rowHeight}", AnchorMax = $"0.48 {y}" },
+                Text = { Text = "Door Info", FontSize = 9, Align = TextAnchor.MiddleCenter }
+            }, "Content");
+            
+            elements.Add(new CuiButton
+            {
+                Button = { Color = manualDoorLoaded ? "0.6 0.3 0.3 1" : disabledColor, Command = "hoodwars.admin removedoor" },
+                RectTransform = { AnchorMin = $"0.52 {y - rowHeight}", AnchorMax = $"0.74 {y}" },
+                Text = { Text = "Remove Door", FontSize = 9, Align = TextAnchor.MiddleCenter }
+            }, "Content");
+            
+            elements.Add(new CuiButton
+            {
+                Button = { Color = manualDoorLoaded ? "0.5 0.4 0.2 1" : disabledColor, Command = "hoodwars.admin grandmaresetdoor" },
+                RectTransform = { AnchorMin = $"0.76 {y - rowHeight}", AnchorMax = $"0.98 {y}" },
+                Text = { Text = "Reset Door", FontSize = 9, Align = TextAnchor.MiddleCenter }
+            }, "Content");
+
+            // Info text at bottom
+            elements.Add(new CuiLabel
+            {
+                Text = { Text = "Spawn locked doors for any gang's grandma house. Each button spawns a door with auto-codelock (code: 1337) registered to that gang.\n" +
+                               "Commands: /spawngrandmadoor <gang>, /spawngrandmagaragedoor <gang>, /spawngrandmametaldoor <gang>\n" +
+                               "/spawngrandmaarmoreddoubledoor <gang>, /spawngrandmametaldoubledoor <gang>",
+                        FontSize = 8, Align = TextAnchor.MiddleLeft, Color = "0.6 0.6 0.6 1" },
+                RectTransform = { AnchorMin = "0.02 0.02", AnchorMax = "0.98 0.18" }
+            }, "Content");
         }
 
         private void AddSettingRow(CuiElementContainer elements, ref float y, float rowHeight, string label, string value, string buttonColor, string command)
@@ -2679,8 +3722,9 @@ namespace Oxide.Plugins
             return hqHood?.Name ?? "Neutral";
         }
 
-        // API method to get a player's gang name by user ID (used by GangKits)
-        private string GetPlayerGangName(ulong playerId)
+        // API method to get a player's gang name by user ID (used by GangKits, GrandmasHouse)
+        // NOTE: Must be public for Plugin.Call() to work from other plugins
+        public string GetPlayerGangName(ulong playerId)
         {
             Puts($"[DEBUG] GetPlayerGangName called for {playerId}");
             if (_config == null || _storedData == null)
@@ -2715,7 +3759,8 @@ namespace Oxide.Plugins
 
         // API wrapper for external plugins to get player gang name
         // NOTE: Must return object for Oxide Plugin.Call() to work properly
-        private object API_GetPlayerGangName(ulong playerId)
+        // Public API method for cross-plugin communication (called via Plugin.Call)
+        public object API_GetPlayerGangName(ulong playerId)
         {
             Puts($"[DEBUG] API_GetPlayerGangName called for {playerId}");
             var result = GetPlayerGangName(playerId);

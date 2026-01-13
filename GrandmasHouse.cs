@@ -9,12 +9,12 @@ using Newtonsoft.Json;
 
 namespace Oxide.Plugins
 {
-    [Info("GrandmasHouse", "Gemini", "2.9.1")]
-    [Description("Independent Matriarch System. Advanced clone mimicry including jumping and looking direction.")]
+    [Info("GrandmasHouse", "Gemini", "3.0.0")]
+    [Description("Independent Matriarch System with gang integration, door access control, and safezone support.")]
     public class GrandmasHouse : RustPlugin
     {
         [PluginReference]
-        private Plugin HoodWars, TurfGraffiti;
+        private Plugin HoodWars, TurfGraffiti, ManualDoor, ServerRewards;
 
         private Dictionary<string, MatriarchSet> _activeMatriarchs = new Dictionary<string, MatriarchSet>();
         private List<BaseEntity> _manualMatriarchs = new List<BaseEntity>();
@@ -24,9 +24,21 @@ namespace Oxide.Plugins
         private Dictionary<ulong, Queue<CaptorFrame>> _captorTrails = new Dictionary<ulong, Queue<CaptorFrame>>();
         private Dictionary<BaseEntity, float> _aimTimers = new Dictionary<BaseEntity, float>();
         
+        // Grandma's House locations (safezones with restricted building but doors can be raided)
+        private Dictionary<string, GrandmaHouseZone> _grandmaHouseZones = new Dictionary<string, GrandmaHouseZone>();
+        
+        // Sphere markers for grandma zones (like HQ spheres)
+        private Dictionary<string, SphereEntity> _grandmaSphereMarkers = new Dictionary<string, SphereEntity>();
+        
         private const string PrefabNPC = "assets/prefabs/player/player.prefab";
+        private const string PrefabSphere = "assets/prefabs/visualization/sphere.prefab";
         private const string PermAdmin = "grandmashouse.admin";
         private const string ItemC4 = "explosive.timed";
+        
+        // Door prefabs for grandma house
+        private const string GarageDoorPrefab = "assets/prefabs/building/door.hinged/door.hinged.garage/door.hinged.garagedoor.prefab";
+        private const string ArmoredDoorPrefab = "assets/prefabs/building/door.hinged/door.hinged.armoured/door.hinged.armoured.prefab";
+        private const string ArmoredDoubleDoorPrefab = "assets/prefabs/building/door.double.hinged/door.double.hinged.armoured/door.double.hinged.armoured.prefab";
 
         private class MatriarchSet
         {
@@ -44,6 +56,40 @@ namespace Oxide.Plugins
             public bool IsCrouching;
             public bool IsOnGround;
         }
+        
+        // Grandma's House zone definition
+        private class GrandmaHouseZone
+        {
+            public string GangName;
+            public Vector3 Center;
+            public float Radius;
+            public List<ulong> ManagedDoors = new List<ulong>(); // Door net IDs managed by this zone
+        }
+        
+        #region HoodWars Data Types (for reading HoodWars_CoreData.json directly)
+        
+        // These mirror the data structures in HoodWars.cs for direct data file access
+        private class HoodWarsStoredData
+        {
+            public Dictionary<ulong, HoodWarsPlayerInfo> Players = new Dictionary<ulong, HoodWarsPlayerInfo>();
+        }
+        
+        private class HoodWarsPlayerInfo
+        {
+            public int HomeHood = 4; // 0=West (Pirus), 1=North (Vagos), 2=South (Surenos), 3=East (Disciples), 4=Neutral
+        }
+        
+        // Gang names corresponding to HomeHood values
+        private static readonly string[] GangNames = new string[]
+        {
+            "Westside Pirus",     // 0
+            "Northside Vagos",    // 1
+            "Southside Sureños",  // 2
+            "Eastside Disciples", // 3
+            "Neutral"             // 4
+        };
+        
+        #endregion
 
         #region Configuration
 
@@ -83,7 +129,49 @@ namespace Oxide.Plugins
             public float StickUpDistance = 5f;
             public float FollowDistance = 1.2f;
             public float RequiredAimTime = 14.0f;
-            public bool InvulnerableWhileSurrendered = false; 
+            public bool InvulnerableWhileSurrendered = false;
+            
+            [JsonProperty("Grandma House Zone Radius")]
+            public float GrandmaHouseRadius { get; set; } = 30f;
+            
+            [JsonProperty("C4 Reward Per Player")]
+            public int C4RewardCount { get; set; } = 2;
+            
+            [JsonProperty("Allow Building In Grandma Zone")]
+            public bool AllowBuildingInGrandmaZone { get; set; } = false;
+            
+            [JsonProperty("Show Grandma Zone Spheres")]
+            public bool ShowGrandmaSpheres { get; set; } = true;
+            
+            [JsonProperty("Grandma Sphere Opacity (0.0 to 1.0)")]
+            public float GrandmaSphereAlpha { get; set; } = 0.25f;
+            
+            [JsonProperty("Grandma Sphere Color (Hex)")]
+            public string GrandmaSphereColor { get; set; } = "#FFD700"; // Gold color
+            
+            [JsonProperty("Gang Zone Locations (4 zones, one per gang)")]
+            public Dictionary<string, GangZoneConfig> GangZones { get; set; } = new Dictionary<string, GangZoneConfig>
+            {
+                { "Westside Pirus", new GangZoneConfig { X = 0, Y = 0, Z = 0, Radius = 30f, HexColor = "#FF0000" } },
+                { "Northside Vagos", new GangZoneConfig { X = 0, Y = 0, Z = 0, Radius = 30f, HexColor = "#FFFF00" } },
+                { "Southside Sureños", new GangZoneConfig { X = 0, Y = 0, Z = 0, Radius = 30f, HexColor = "#0000FF" } },
+                { "Eastside Disciples", new GangZoneConfig { X = 0, Y = 0, Z = 0, Radius = 30f, HexColor = "#000000" } }
+            };
+            
+            [JsonProperty("Auto-Register Doors In Zones")]
+            public bool AutoRegisterDoorsInZones { get; set; } = true;
+        }
+        
+        private class GangZoneConfig
+        {
+            public float X { get; set; }
+            public float Y { get; set; }
+            public float Z { get; set; }
+            public float Radius { get; set; } = 30f;
+            public string HexColor { get; set; } = "#FFD700";
+            
+            public Vector3 ToVector3() => new Vector3(X, Y, Z);
+            public bool IsConfigured => X != 0 || Y != 0 || Z != 0;
         }
 
         protected override void LoadDefaultConfig() => _config = new ConfigData();
@@ -114,6 +202,37 @@ namespace Oxide.Plugins
             timer.Every(5f, UpdateMatriarchAuras);
             timer.Every(0.03f, UpdateHostageLogic); 
             timer.Every(_config.FoodGiftIntervalMinutes * 60, DistributeGrandmaMeals);
+            
+            // Initialize grandma zones from config (4 zones, one per gang)
+            InitializeGangZonesFromConfig();
+        }
+        
+        /// <summary>
+        /// Initialize all 4 grandma house zones from config. 
+        /// Zones are independent of grandma NPCs - they define areas where:
+        /// - Doors auto-register to the zone's gang
+        /// - Codelocks are auto-attached and gang members can open
+        /// - Building is restricted
+        /// </summary>
+        private void InitializeGangZonesFromConfig()
+        {
+            if (_config.GangZones == null) return;
+            
+            foreach (var kvp in _config.GangZones)
+            {
+                string gangName = kvp.Key;
+                var zoneConfig = kvp.Value;
+                
+                if (!zoneConfig.IsConfigured)
+                {
+                    Puts($"[GrandmasHouse] Zone for {gangName} not configured (position 0,0,0). Use /gzoneset {gangName} to set.");
+                    continue;
+                }
+                
+                CreateGrandmaHouseZoneFromConfig(gangName, zoneConfig);
+            }
+            
+            Puts($"[GrandmasHouse] Initialized {_grandmaHouseZones.Count} grandma house zones.");
         }
 
         private void Unload()
@@ -126,6 +245,9 @@ namespace Oxide.Plugins
 
             foreach (var ent in _manualMatriarchs)
                 if (ent != null && !ent.IsDestroyed) ent.Kill();
+            
+            // Clean up all grandma spheres
+            ClearAllGrandmaSpheres();
         }
 
         private void SpawnAllMatriarchs()
@@ -151,8 +273,125 @@ namespace Oxide.Plugins
             Vector3 spawnPos = hqPos + new Vector3(8, 0, 8);
 
             BaseEntity ent = InternalSpawn(spawnPos, gangName, isGrandma);
-            if (isGrandma) _activeMatriarchs[gangName].Grandma = ent;
-            else _activeMatriarchs[gangName].Mom = ent;
+            if (isGrandma) 
+            {
+                _activeMatriarchs[gangName].Grandma = ent;
+                // NOTE: Zones are set independently via /gzoneset - auto-spawning grandma does NOT affect zones
+                // This allows admins to set up zone locations that persist across grandma deaths/respawns
+            }
+            else 
+            {
+                _activeMatriarchs[gangName].Mom = ent;
+            }
+        }
+        
+        private void CreateGrandmaHouseZone(string gangName, Vector3 center)
+        {
+            _grandmaHouseZones[gangName] = new GrandmaHouseZone
+            {
+                GangName = gangName,
+                Center = center,
+                Radius = _config.GrandmaHouseRadius,
+                ManagedDoors = new List<ulong>()
+            };
+            Puts($"[GrandmasHouse] Created Grandma House zone for {gangName} at {center} with radius {_config.GrandmaHouseRadius}");
+            
+            // Create sphere visualization like HQ spheres
+            if (_config.ShowGrandmaSpheres)
+            {
+                CreateGrandmaSphere(gangName, center, _config.GrandmaSphereColor);
+            }
+        }
+        
+        /// <summary>
+        /// Create a grandma house zone from config (with custom radius and color per gang)
+        /// </summary>
+        private void CreateGrandmaHouseZoneFromConfig(string gangName, GangZoneConfig zoneConfig)
+        {
+            Vector3 center = zoneConfig.ToVector3();
+            
+            _grandmaHouseZones[gangName] = new GrandmaHouseZone
+            {
+                GangName = gangName,
+                Center = center,
+                Radius = zoneConfig.Radius,
+                ManagedDoors = new List<ulong>()
+            };
+            Puts($"[GrandmasHouse] Created Grandma House zone for {gangName} at {center} with radius {zoneConfig.Radius}");
+            
+            // Create sphere visualization with gang-specific color
+            if (_config.ShowGrandmaSpheres)
+            {
+                CreateGrandmaSphereWithColor(gangName, center, zoneConfig.Radius, zoneConfig.HexColor);
+            }
+        }
+        
+        private void CreateGrandmaSphere(string gangName, Vector3 center, string hexColor = null)
+        {
+            CreateGrandmaSphereWithColor(gangName, center, _config.GrandmaHouseRadius, hexColor ?? _config.GrandmaSphereColor);
+        }
+        
+        private void CreateGrandmaSphereWithColor(string gangName, Vector3 center, float radius, string hexColor)
+        {
+            // Remove existing sphere if any
+            RemoveGrandmaSphere(gangName);
+            
+            // Position sphere slightly above terrain
+            float terrainHeight = TerrainMeta.HeightMap.GetHeight(center);
+            Vector3 sphereCenter = new Vector3(center.x, terrainHeight + 1f, center.z);
+            
+            var sphere = GameManager.server.CreateEntity(PrefabSphere, sphereCenter) as SphereEntity;
+            if (sphere == null) return;
+            
+            // SphereEntity.currentRadius is actually the diameter
+            sphere.currentRadius = radius * 2f;
+            sphere.lerpSpeed = 0f;
+            
+            sphere.Spawn();
+            
+            // Set sphere color from config
+            Color sphereColor;
+            if (!ColorUtility.TryParseHtmlString(hexColor, out sphereColor))
+            {
+                sphereColor = Color.yellow;
+            }
+            
+            // Apply color and transparency
+            var renderer = sphere.GetComponentInChildren<MeshRenderer>();
+            if (renderer != null && renderer.sharedMaterial != null)
+            {
+                var mat = new Material(renderer.sharedMaterial);
+                sphereColor.a = _config.GrandmaSphereAlpha;
+                mat.color = sphereColor;
+                renderer.material = mat;
+            }
+            
+            _grandmaSphereMarkers[gangName] = sphere;
+            Puts($"[GrandmasHouse] Created sphere marker for {gangName} at {sphereCenter} (color: {hexColor})");
+        }
+        
+        private void RemoveGrandmaSphere(string gangName)
+        {
+            if (_grandmaSphereMarkers.TryGetValue(gangName, out var sphere))
+            {
+                if (sphere != null && !sphere.IsDestroyed)
+                {
+                    sphere.Kill();
+                }
+                _grandmaSphereMarkers.Remove(gangName);
+            }
+        }
+        
+        private void ClearAllGrandmaSpheres()
+        {
+            foreach (var sphere in _grandmaSphereMarkers.Values)
+            {
+                if (sphere != null && !sphere.IsDestroyed)
+                {
+                    sphere.Kill();
+                }
+            }
+            _grandmaSphereMarkers.Clear();
         }
 
         private BaseEntity InternalSpawn(Vector3 pos, string gangName, bool isGrandma)
@@ -453,27 +692,69 @@ namespace Oxide.Plugins
 
         #region Retaliation & Rewards
 
-        private void TriggerRetaliation(string gangName, string matriarchName)
+        private void TriggerRetaliation(string victimGangName, string matriarchName, BasePlayer killer = null)
         {
-            if (string.IsNullOrEmpty(gangName)) return;
+            if (string.IsNullOrEmpty(victimGangName)) return;
+            
+            // Normalize victim gang name to full format
+            string normalizedVictimGang = ResolveGangName(victimGangName);
+            
+            Puts($"[GRANDMA DEBUG] TriggerRetaliation called: victimGangName={victimGangName}, normalized={normalizedVictimGang}, matriarchName={matriarchName}");
 
-            PrintToChat($"<color=#ffd700>★★★ ACHIEVEMENT UNLOCKED ★★★</color>");
-            PrintToChat($"<color=#ff4444>STREET JUSTICE:</color> <color=#ffffff>{gangName}</color> is seeking revenge for the death of <color=#ffffff>{matriarchName}</color>!");
-            PrintToChat($"<color=#ffd700>RETALIATION LOADOUT GRANTED TO ALL ONLINE MEMBERS.</color>");
-
-            foreach (var player in BasePlayer.activePlayerList)
+            // Notify everyone about the death
+            PrintToChat($"<color=#ffd700>★★★ STREET NEWS ★★★</color>");
+            PrintToChat($"<color=#ff4444>TRAGEDY:</color> <color=#ffffff>{normalizedVictimGang}</color>'s <color=#ffffff>{matriarchName}</color> has been killed!");
+            
+            // Get the killer's gang by reading directly from HoodWars data file (most reliable method)
+            string killerGang = "";
+            if (killer != null)
             {
-                string pGang = HoodWars?.Call<string>("GetPlayerGangName", player.userID) ?? "Neutral";
-                if (pGang == gangName)
+                killerGang = GetPlayerGangFromDataFile(killer.userID);
+                Puts($"[GRANDMA DEBUG] Killer: {killer.displayName} (ID: {killer.userID}), KillerGang: {killerGang}");
+            }
+            else
+            {
+                Puts($"[GRANDMA DEBUG] No killer specified");
+            }
+
+            // Reward the killer's gang with C4 if they killed an enemy's grandma
+            if (killer != null && !string.IsNullOrEmpty(killerGang) && killerGang != "Neutral")
+            {
+                // Check if killer's gang is different from victim's gang
+                bool isDifferentGang = killerGang != normalizedVictimGang;
+                Puts($"[GRANDMA DEBUG] Checking reward eligibility: killerGang={killerGang}, victimGang={normalizedVictimGang}, isDifferentGang={isDifferentGang}");
+                
+                if (isDifferentGang)
                 {
-                    Item c4 = ItemManager.CreateByName(ItemC4, 2);
-                    if (c4 != null)
+                    PrintToChat($"<color=#55ff55>STREET JUSTICE:</color> <color=#ffffff>{killerGang}</color> earned rewards for taking out {matriarchName}!");
+
+                    int killerRewardCount = 0;
+                    foreach (var player in BasePlayer.activePlayerList)
                     {
-                        player.GiveItem(c4);
-                        player.ChatMessage("<color=#ff4444>[GANG LOADOUT]</color> You received 2 C4. Go get your revenge!");
-                        Effect.server.Run("assets/prefabs/tools/timed.explosive.charge/effects/impact.prefab", player.transform.position);
+                        // Use direct data file access for getting player gang
+                        string pGang = GetPlayerGangFromDataFile(player.userID);
+                        if (pGang == killerGang)
+                        {
+                            Item c4 = ItemManager.CreateByName(ItemC4, _config.C4RewardCount);
+                            if (c4 != null)
+                            {
+                                player.GiveItem(c4);
+                                player.ChatMessage($"<color=#55ff55>[GANG REWARD]</color> You received {_config.C4RewardCount} C4 for taking out {normalizedVictimGang}'s {matriarchName}!");
+                                Effect.server.Run("assets/prefabs/tools/timed.explosive.charge/effects/impact.prefab", player.transform.position);
+                                killerRewardCount++;
+                            }
+                        }
                     }
+                    Puts($"[GRANDMA DEBUG] Killer gang rewards given to {killerRewardCount} players");
                 }
+                else
+                {
+                    Puts($"[GRANDMA DEBUG] No rewards - killer gang is same as victim gang");
+                }
+            }
+            else
+            {
+                Puts($"[GRANDMA DEBUG] No rewards - killer conditions not met: killer={killer != null}, killerGang={killerGang}");
             }
         }
 
@@ -522,7 +803,8 @@ namespace Oxide.Plugins
             Vis.Entities(source.transform.position, radius, nearby);
             foreach (var player in nearby)
             {
-                string pGang = HoodWars != null ? HoodWars.Call<string>("GetPlayerGangName", player.userID) : "Admin_Test";
+                // Use direct data file access for getting player gang
+                string pGang = GetPlayerGangFromDataFile(player.userID);
                 if (pGang == gangName || gangName == "Admin_Test") effect(player);
             }
         }
@@ -537,7 +819,11 @@ namespace Oxide.Plugins
                 List<BasePlayer> nearby = new List<BasePlayer>();
                 Vis.Entities(grandma.transform.position, _config.Grandma.Radius, nearby);
                 
-                BasePlayer luckyMember = nearby.FirstOrDefault(p => (HoodWars?.Call<string>("GetPlayerGangName", p.userID) ?? "Neutral") == kvp.Key);
+                BasePlayer luckyMember = nearby.FirstOrDefault(p => {
+                    // Use direct data file access for getting player gang
+                    string pGang = GetPlayerGangFromDataFile(p.userID);
+                    return pGang == kvp.Key;
+                });
                 if (luckyMember != null)
                 {
                     Item meal = ItemManager.CreateByName("porkbeans", 1);
@@ -573,6 +859,351 @@ namespace Oxide.Plugins
             _manualMatriarchs.Clear();
             player.ChatMessage("Cleared manual NPCs.");
         }
+        
+        /// <summary>
+        /// Alias for /gclear - clears all manually spawned grandmas
+        /// </summary>
+        [ChatCommand("cleargrandma")]
+        private void CmdClearGrandma(BasePlayer player)
+        {
+            CmdGClear(player);
+        }
+        
+        /// <summary>
+        /// Spawn a grandma for a specific gang at the player's location
+        /// Usage: /spawngrandma [gang_name]
+        /// If no gang name is specified, spawns a generic "Test" grandma
+        /// </summary>
+        [ChatCommand("spawngrandma")]
+        private void CmdSpawnGrandma(BasePlayer player, string command, string[] args)
+        {
+            if (!player.IsAdmin && !permission.UserHasPermission(player.UserIDString, PermAdmin)) return;
+            
+            string gangName = "TestHood";
+            if (args.Length > 0)
+            {
+                gangName = ResolveGangName(args[0]);
+            }
+            
+            BaseEntity ent = InternalSpawn(player.transform.position, gangName, true);
+            if (ent != null)
+            {
+                _manualMatriarchs.Add(ent);
+                player.ChatMessage($"<color=#55ff55>[GRANDMA]</color> Spawned Grandma for {gangName} at your location.");
+                
+                // NOTE: Zones are set independently via /gzoneset - spawning grandma does NOT affect zones
+                // This ensures zones persist even when grandmas die and are respawned
+            }
+            else
+            {
+                player.ChatMessage("<color=#ff4444>[ERROR]</color> Failed to spawn Grandma.");
+            }
+        }
+        
+        /// <summary>
+        /// Spawn a mom for a specific gang at the player's location
+        /// Usage: /spawnmom [gang_name]
+        /// </summary>
+        [ChatCommand("spawnmom")]
+        private void CmdSpawnMom(BasePlayer player, string command, string[] args)
+        {
+            if (!player.IsAdmin && !permission.UserHasPermission(player.UserIDString, PermAdmin)) return;
+            
+            string gangName = "TestHood";
+            if (args.Length > 0)
+            {
+                gangName = ResolveGangName(args[0]);
+            }
+            
+            BaseEntity ent = InternalSpawn(player.transform.position, gangName, false);
+            if (ent != null)
+            {
+                _manualMatriarchs.Add(ent);
+                player.ChatMessage($"<color=#55ff55>[MOM]</color> Spawned Mom for {gangName} at your location.");
+            }
+            else
+            {
+                player.ChatMessage("<color=#ff4444>[ERROR]</color> Failed to spawn Mom.");
+            }
+        }
+        
+        /// <summary>
+        /// Kill all grandmas for a specific gang, or all if no gang specified
+        /// Usage: /killgrandma [gang_name]
+        /// </summary>
+        [ChatCommand("killgrandma")]
+        private void CmdKillGrandma(BasePlayer player, string command, string[] args)
+        {
+            if (!player.IsAdmin && !permission.UserHasPermission(player.UserIDString, PermAdmin)) return;
+            
+            int killed = 0;
+            
+            if (args.Length > 0)
+            {
+                // Kill specific gang's grandmas
+                string gangName = ResolveGangName(args[0]);
+                
+                // Kill from active matriarchs
+                if (_activeMatriarchs.TryGetValue(gangName, out var set))
+                {
+                    if (set.Grandma != null && !set.Grandma.IsDestroyed)
+                    {
+                        set.Grandma.Kill();
+                        killed++;
+                    }
+                }
+                
+                // Kill from manual matriarchs that belong to this gang
+                for (int i = _manualMatriarchs.Count - 1; i >= 0; i--)
+                {
+                    var ent = _manualMatriarchs[i];
+                    if (ent == null || ent.IsDestroyed) continue;
+                    var npc = ent as BasePlayer;
+                    if (npc != null && npc.displayName.Contains(gangName))
+                    {
+                        ent.Kill();
+                        _manualMatriarchs.RemoveAt(i);
+                        killed++;
+                    }
+                }
+                
+                player.ChatMessage($"<color=#ff4444>[GRANDMA]</color> Killed {killed} grandma(s) for {gangName}.");
+            }
+            else
+            {
+                // Kill all grandmas
+                foreach (var set in _activeMatriarchs.Values)
+                {
+                    if (set.Grandma != null && !set.Grandma.IsDestroyed)
+                    {
+                        set.Grandma.Kill();
+                        killed++;
+                    }
+                }
+                
+                for (int i = _manualMatriarchs.Count - 1; i >= 0; i--)
+                {
+                    var ent = _manualMatriarchs[i];
+                    if (ent == null || ent.IsDestroyed) continue;
+                    var npc = ent as BasePlayer;
+                    if (npc != null && npc.displayName.Contains("Grandma"))
+                    {
+                        ent.Kill();
+                        _manualMatriarchs.RemoveAt(i);
+                        killed++;
+                    }
+                }
+                
+                player.ChatMessage($"<color=#ff4444>[GRANDMA]</color> Killed {killed} grandma(s).");
+            }
+        }
+        
+        [ChatCommand("gzone")]
+        private void CmdGZone(BasePlayer player, string command, string[] args)
+        {
+            if (!player.IsAdmin && !permission.UserHasPermission(player.UserIDString, PermAdmin)) return;
+            if (args.Length < 1) { player.ChatMessage("Usage: /gzone <create|remove|list|set|info> [gang_name] [radius]"); return; }
+            
+            string action = args[0].ToLower();
+            
+            if (action == "list")
+            {
+                player.ChatMessage("<color=#66ccff>=== Grandma Zones (4 Gang Zones) ===</color>");
+                foreach (var gang in new[] { "Westside Pirus", "Northside Vagos", "Southside Sureños", "Eastside Disciples" })
+                {
+                    if (_grandmaHouseZones.TryGetValue(gang, out var zone))
+                    {
+                        player.ChatMessage($"<color=#55ff55>✓</color> {gang} at ({zone.Center.x:F0}, {zone.Center.y:F0}, {zone.Center.z:F0}) r={zone.Radius} [{zone.ManagedDoors.Count} doors]");
+                    }
+                    else if (_config.GangZones.TryGetValue(gang, out var config) && config.IsConfigured)
+                    {
+                        player.ChatMessage($"<color=#ffaa00>⚠</color> {gang} configured but not active at ({config.X:F0}, {config.Y:F0}, {config.Z:F0})");
+                    }
+                    else
+                    {
+                        player.ChatMessage($"<color=#ff4444>✗</color> {gang} - NOT CONFIGURED. Use /gzoneset {gang}");
+                    }
+                }
+                return;
+            }
+            
+            if (action == "info")
+            {
+                // Show which zone the player is in
+                string zoneGang = GetZoneGangAtPosition(player.transform.position);
+                if (zoneGang != null)
+                {
+                    var zone = _grandmaHouseZones[zoneGang];
+                    player.ChatMessage($"<color=#55ff55>[GRANDMA'S HOUSE]</color> You are in {zoneGang}'s zone.\n" +
+                        $"Center: ({zone.Center.x:F0}, {zone.Center.y:F0}, {zone.Center.z:F0})\n" +
+                        $"Radius: {zone.Radius}m\n" +
+                        $"Doors: {zone.ManagedDoors.Count}");
+                }
+                else
+                {
+                    player.ChatMessage("<color=#ffaa00>[GRANDMA'S HOUSE]</color> You are NOT in any grandma zone.");
+                }
+                return;
+            }
+            
+            if (args.Length < 2)
+            {
+                player.ChatMessage("Usage: /gzone <create|remove|set> <gang_name> [radius]");
+                return;
+            }
+            
+            string gangName = args[1];
+            // Support partial gang names
+            gangName = ResolveGangName(gangName);
+            
+            if (action == "create" || action == "set")
+            {
+                float radius = args.Length > 2 && float.TryParse(args[2], out float r) ? r : _config.GrandmaHouseRadius;
+                
+                // Update config
+                if (!_config.GangZones.ContainsKey(gangName))
+                {
+                    _config.GangZones[gangName] = new GangZoneConfig();
+                }
+                _config.GangZones[gangName].X = player.transform.position.x;
+                _config.GangZones[gangName].Y = player.transform.position.y;
+                _config.GangZones[gangName].Z = player.transform.position.z;
+                _config.GangZones[gangName].Radius = radius;
+                SaveConfig();
+                
+                // Create zone
+                CreateGrandmaHouseZoneFromConfig(gangName, _config.GangZones[gangName]);
+                player.ChatMessage($"<color=#55ff55>[GRANDMA'S HOUSE]</color> Set zone for {gangName} at your position with radius {radius}. Config saved!");
+            }
+            else if (action == "remove")
+            {
+                if (_grandmaHouseZones.ContainsKey(gangName))
+                {
+                    _grandmaHouseZones.Remove(gangName);
+                    RemoveGrandmaSphere(gangName);
+                    
+                    // Clear config position
+                    if (_config.GangZones.ContainsKey(gangName))
+                    {
+                        _config.GangZones[gangName].X = 0;
+                        _config.GangZones[gangName].Y = 0;
+                        _config.GangZones[gangName].Z = 0;
+                        SaveConfig();
+                    }
+                    
+                    player.ChatMessage($"<color=#55ff55>[GRANDMA'S HOUSE]</color> Removed zone for {gangName}. Config cleared.");
+                }
+                else
+                {
+                    player.ChatMessage($"<color=#ff4444>[ERROR]</color> No zone found for {gangName}.");
+                }
+            }
+        }
+        
+        /// <summary>
+        /// Shortcut command to set zone at current position
+        /// </summary>
+        [ChatCommand("gzoneset")]
+        private void CmdGZoneSet(BasePlayer player, string command, string[] args)
+        {
+            if (!player.IsAdmin && !permission.UserHasPermission(player.UserIDString, PermAdmin)) return;
+            if (args.Length < 1) 
+            { 
+                player.ChatMessage("Usage: /gzoneset <gang_name> [radius]\n" +
+                    "Gang names: Pirus, Vagos, Surenos, Disciples\n" +
+                    "Example: /gzoneset Pirus 30"); 
+                return; 
+            }
+            
+            string gangName = ResolveGangName(args[0]);
+            float radius = args.Length > 1 && float.TryParse(args[1], out float r) ? r : _config.GrandmaHouseRadius;
+            
+            // Update config
+            if (!_config.GangZones.ContainsKey(gangName))
+            {
+                _config.GangZones[gangName] = new GangZoneConfig();
+            }
+            _config.GangZones[gangName].X = player.transform.position.x;
+            _config.GangZones[gangName].Y = player.transform.position.y;
+            _config.GangZones[gangName].Z = player.transform.position.z;
+            _config.GangZones[gangName].Radius = radius;
+            SaveConfig();
+            
+            // Create zone
+            CreateGrandmaHouseZoneFromConfig(gangName, _config.GangZones[gangName]);
+            player.ChatMessage($"<color=#55ff55>[GRANDMA'S HOUSE]</color> Zone set for {gangName} at your position (r={radius})!");
+        }
+        
+        /// <summary>
+        /// Resolve partial gang names to full names
+        /// </summary>
+        private string ResolveGangName(string input)
+        {
+            input = input.ToLower();
+            if (input.Contains("piru") || input.Contains("west")) return "Westside Pirus";
+            if (input.Contains("vago") || input.Contains("north")) return "Northside Vagos";
+            if (input.Contains("sure") || input.Contains("south")) return "Southside Sureños";
+            if (input.Contains("disc") || input.Contains("east")) return "Eastside Disciples";
+            return input; // Return as-is if no match
+        }
+        
+        /// <summary>
+        /// Get a player's gang name by reading directly from HoodWars_CoreData.json
+        /// This is the most reliable method since Plugin.Call() has issues with reflection
+        /// </summary>
+        private string GetPlayerGangFromDataFile(ulong playerId)
+        {
+            try
+            {
+                var dataFile = Interface.Oxide.DataFileSystem.GetFile("HoodWars_CoreData");
+                if (dataFile != null)
+                {
+                    var hoodWarsData = dataFile.ReadObject<HoodWarsStoredData>();
+                    if (hoodWarsData?.Players != null && hoodWarsData.Players.TryGetValue(playerId, out var playerInfo))
+                    {
+                        // HomeHood: 0=West (Pirus), 1=North (Vagos), 2=South (Surenos), 3=East (Disciples), 4=Neutral
+                        if (playerInfo.HomeHood >= 0 && playerInfo.HomeHood < GangNames.Length)
+                        {
+                            string gangName = GangNames[playerInfo.HomeHood];
+                            Puts($"[GRANDMA DEBUG] GetPlayerGangFromDataFile: playerId={playerId}, HomeHood={playerInfo.HomeHood}, gangName={gangName}");
+                            return gangName;
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Puts($"[GRANDMA DEBUG] GetPlayerGangFromDataFile ERROR: {ex.Message}");
+            }
+            
+            Puts($"[GRANDMA DEBUG] GetPlayerGangFromDataFile: playerId={playerId} not found in data file, returning Neutral");
+            return "Neutral";
+        }
+        
+        [ChatCommand("gtoggleSpheres")]
+        private void CmdToggleSpheres(BasePlayer player)
+        {
+            if (!player.IsAdmin && !permission.UserHasPermission(player.UserIDString, PermAdmin)) return;
+            
+            _config.ShowGrandmaSpheres = !_config.ShowGrandmaSpheres;
+            SaveConfig();
+            
+            if (_config.ShowGrandmaSpheres)
+            {
+                foreach (var zone in _grandmaHouseZones)
+                {
+                    var zoneConfig = _config.GangZones.ContainsKey(zone.Key) ? _config.GangZones[zone.Key] : null;
+                    string color = zoneConfig?.HexColor ?? _config.GrandmaSphereColor;
+                    CreateGrandmaSphereWithColor(zone.Key, zone.Value.Center, zone.Value.Radius, color);
+                }
+                player.ChatMessage("<color=#55ff55>[GRANDMA'S HOUSE]</color> Sphere markers are now VISIBLE.");
+            }
+            else
+            {
+                ClearAllGrandmaSpheres();
+                player.ChatMessage("<color=#ffaa00>[GRANDMA'S HOUSE]</color> Sphere markers are now HIDDEN.");
+            }
+        }
 
         #endregion
 
@@ -605,24 +1236,221 @@ namespace Oxide.Plugins
             if (entity == null) return;
             string gangOwner = "";
             bool wasG = false;
+            bool isManualMatriarch = false;
 
+            // Check active matriarchs (auto-spawned at HQ)
             foreach(var kvp in _activeMatriarchs)
             {
                 if (kvp.Value.Grandma == entity) { gangOwner = kvp.Key; wasG = true; break; }
                 if (kvp.Value.Mom == entity) { gangOwner = kvp.Key; wasG = false; break; }
             }
+            
+            // Also check manual matriarchs (spawned via /spawngrandma or /spawnmom)
+            if (string.IsNullOrEmpty(gangOwner) && _manualMatriarchs.Contains(entity))
+            {
+                isManualMatriarch = true;
+                var npc = entity as BasePlayer;
+                if (npc != null)
+                {
+                    // Parse gang name from display name format: "GangName's Grandma" or "GangName's Mom"
+                    string displayName = npc.displayName ?? "";
+                    wasG = displayName.Contains("Grandma");
+                    
+                    // Extract gang name from the NPC display name
+                    if (displayName.Contains("'s"))
+                    {
+                        gangOwner = displayName.Split(new[] { "'s" }, StringSplitOptions.None)[0];
+                        // Normalize the gang name to ensure it matches HoodWars format
+                        gangOwner = ResolveGangName(gangOwner);
+                    }
+                    else if (displayName.Contains("Piru")) gangOwner = "Westside Pirus";
+                    else if (displayName.Contains("Vago")) gangOwner = "Northside Vagos";
+                    else if (displayName.Contains("Sureño") || displayName.Contains("Sureno")) gangOwner = "Southside Sureños";
+                    else if (displayName.Contains("Disciple")) gangOwner = "Eastside Disciples";
+                    else gangOwner = "TestHood"; // Fallback for test spawns
+                    
+                    Puts($"[GRANDMA DEBUG] OnEntityDeath: displayName={displayName}, gangOwner={gangOwner}, wasG={wasG}");
+                }
+            }
 
             if (string.IsNullOrEmpty(gangOwner)) return;
 
-            TriggerRetaliation(gangOwner, wasG ? "Grandma" : "Mom");
+            // Get the killer for reward distribution
+            BasePlayer killer = info?.InitiatorPlayer;
+            TriggerRetaliation(gangOwner, wasG ? "Grandma" : "Mom", killer);
 
             _captors.Remove(entity);
             _surrenderedMatriarchs.Remove(entity);
             
+            // Remove from manual matriarchs if applicable
+            if (isManualMatriarch)
+            {
+                _manualMatriarchs.Remove(entity);
+            }
+            
+            // NOTE: Grandma zones and spheres are NOT removed when grandma dies
+            // Zones are set independently via /gzoneset and should persist
+            // They protect the location, not the grandma NPC itself
+            
             float penalty = wasG ? _config.Grandma.InfluencePenalty : _config.Mom.InfluencePenalty;
             if (TurfGraffiti != null) TurfGraffiti.Call("ReduceInfluence", gangOwner, penalty);
 
-            timer.Once(_config.RespawnTimeSeconds, () => SpawnMatriarchAtHQ(gangOwner, wasG));
+            // Only respawn if it was an active matriarch, not manual
+            if (!isManualMatriarch)
+            {
+                timer.Once(_config.RespawnTimeSeconds, () => SpawnMatriarchAtHQ(gangOwner, wasG));
+            }
+        }
+        
+        // Block building in Grandma House zones (except for gang members if allowed)
+        private object CanBuild(Planner planner, Construction prefab, Construction.Target target)
+        {
+            if (planner == null) return null;
+            
+            var player = planner.GetOwnerPlayer();
+            if (player == null) return null;
+            
+            // Check if position is in a grandma house zone
+            var zone = GetGrandmaZoneAtPosition(target.position);
+            if (zone == null) return null;
+            
+            // Check if building is allowed in grandma zones
+            if (!_config.AllowBuildingInGrandmaZone)
+            {
+                // Use direct data file access for getting player gang
+                string playerGang = GetPlayerGangFromDataFile(player.userID);
+                
+                // Even gang members can't build in grandma zones by default
+                player.ChatMessage($"<color=#ff4444>[GRANDMA'S HOUSE]</color> You cannot build near Grandma's house. This is sacred ground.");
+                return false;
+            }
+            
+            return null;
+        }
+        
+        // Allow gang members to use doors at grandma's house, block enemies
+        private object CanUseDoor(BasePlayer player, BaseLock doorLock)
+        {
+            if (player == null || doorLock == null) return null;
+            
+            var door = doorLock.GetParentEntity();
+            if (door == null) return null;
+            
+            // Check if door is in a grandma house zone
+            var zone = GetGrandmaZoneAtPosition(door.transform.position);
+            if (zone == null) return null;
+            
+            // Use direct data file access for getting player gang
+            string playerGang = GetPlayerGangFromDataFile(player.userID);
+            
+            // Gang members can always open doors at grandma's house
+            if (playerGang == zone.GangName)
+            {
+                return true; // Allow access
+            }
+            
+            // Enemies cannot open doors
+            player.ChatMessage($"<color=#ff4444>[GRANDMA'S HOUSE]</color> This door belongs to {zone.GangName}. You cannot enter!");
+            return false;
+        }
+        
+        // Allow gang members to use code locks at grandma's house
+        private object CanUseLockedEntity(BasePlayer player, CodeLock codeLock)
+        {
+            if (player == null || codeLock == null) return null;
+            
+            var door = codeLock.GetParentEntity();
+            if (door == null) return null;
+            
+            // Check if door is in a grandma house zone
+            var zone = GetGrandmaZoneAtPosition(door.transform.position);
+            if (zone == null) return null;
+            
+            // Use direct data file access for getting player gang
+            string playerGang = GetPlayerGangFromDataFile(player.userID);
+            
+            // Gang members can always open doors at grandma's house
+            if (playerGang == zone.GangName)
+            {
+                return true; // Allow access
+            }
+            
+            // Enemies cannot open doors (but they can still raid/damage them)
+            player.ChatMessage($"<color=#ff4444>[GRANDMA'S HOUSE]</color> This is {zone.GangName}'s Grandma's house. Only family allowed!");
+            return false;
+        }
+
+        #endregion
+        
+        #region API Methods
+        
+        // API method for other plugins to check if a position is in a grandma house zone
+        private GrandmaHouseZone GetGrandmaZoneAtPosition(Vector3 position)
+        {
+            foreach (var zone in _grandmaHouseZones.Values)
+            {
+                float distance = Vector3.Distance(new Vector3(zone.Center.x, position.y, zone.Center.z), position);
+                if (distance <= zone.Radius)
+                {
+                    return zone;
+                }
+            }
+            return null;
+        }
+        
+        /// <summary>
+        /// Get the gang name for a zone at a position (helper method)
+        /// </summary>
+        private string GetZoneGangAtPosition(Vector3 position)
+        {
+            var zone = GetGrandmaZoneAtPosition(position);
+            return zone?.GangName;
+        }
+        
+        // API: Check if a position is in any grandma house zone
+        private bool API_IsInGrandmaZone(Vector3 position)
+        {
+            return GetGrandmaZoneAtPosition(position) != null;
+        }
+        
+        // API: Get the gang name of the grandma zone at a position
+        private string API_GetGrandmaZoneGang(Vector3 position)
+        {
+            var zone = GetGrandmaZoneAtPosition(position);
+            return zone?.GangName;
+        }
+        
+        // API: Check if a player can access doors in a grandma zone
+        private bool API_CanPlayerAccessGrandmaZone(ulong playerId, Vector3 position)
+        {
+            var zone = GetGrandmaZoneAtPosition(position);
+            if (zone == null) return true; // Not in a grandma zone
+            
+            // Use direct data file access for getting player gang
+            string playerGang = GetPlayerGangFromDataFile(playerId);
+            return playerGang == zone.GangName;
+        }
+        
+        // API: Register a door as managed by grandma zone
+        private void API_RegisterGrandmaDoor(string gangName, ulong doorNetId)
+        {
+            if (_grandmaHouseZones.TryGetValue(gangName, out var zone))
+            {
+                if (!zone.ManagedDoors.Contains(doorNetId))
+                {
+                    zone.ManagedDoors.Add(doorNetId);
+                }
+            }
+        }
+        
+        // API: Get grandma's location for a gang
+        private object GetGrandmaLocation(string gangName)
+        {
+            if (_activeMatriarchs.TryGetValue(gangName, out var set) && set.Grandma != null)
+            {
+                return set.Grandma.transform.position;
+            }
+            return null;
         }
 
         #endregion
